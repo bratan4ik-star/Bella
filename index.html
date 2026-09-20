@@ -1,0 +1,3101 @@
+<!DOCTYPE html>
+<html lang="uk" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Фінансовий Менеджер & Net Worth</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        /* Custom scrollbars matching the app's dark slate/indigo theme, applied
+           app-wide (page body, transaction/portfolio lists, tables, modal). */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #475569 #0f172a;
+        }
+        *::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        *::-webkit-scrollbar-track {
+            background: #0f172a;
+            border-radius: 9999px;
+        }
+        *::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 9999px;
+        }
+        *::-webkit-scrollbar-thumb:hover {
+            background: #6366f1;
+        }
+        *::-webkit-scrollbar-corner {
+            background: transparent;
+        }
+
+        .quick-sort-btn {
+            background: #334155;
+            color: #cbd5e1;
+        }
+        .quick-sort-btn:hover {
+            background: #475569;
+        }
+        .quick-sort-btn.active {
+            background: #4f46e5;
+            color: #fff;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen pb-12">
+    <div class="max-w-6xl mx-auto px-4 pt-6">
+
+        <!-- HEADER & CURRENCY RATES BAR -->
+        <header class="mb-6 bg-slate-800 p-5 rounded-2xl shadow-lg border border-slate-700/80 flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-slate-50 flex items-center gap-2">
+                    <i class="fa-solid fa-wallet text-indigo-400"></i> Фінансовий Менеджер
+                </h1>
+                <p class="text-xs text-slate-400 mt-0.5">Бюджет • ОВДП • Інвестиції • Net Worth • Цілі</p>
+            </div>
+
+            <!-- NBU Live Rates Badge -->
+            <div id="nbuRatesBar" title="Актуальні курси іноземних валют від Нацбанку України" class="flex items-center gap-3 bg-slate-900/80 px-3.5 py-2 rounded-xl border border-slate-700 text-xs text-slate-300 cursor-help">
+                <span class="font-semibold text-slate-200"><i class="fa-solid fa-landmark text-indigo-400 mr-1"></i> Курси НБУ:</span>
+                <span id="rateUSD" class="text-slate-300">USD: ...</span> |
+                <span id="rateEUR" class="text-slate-300">EUR: ...</span> |
+                <span id="ratePLN" class="text-slate-300">PLN: ...</span>
+            </div>
+
+            <!-- Global Currency & Backup controls -->
+            <div class="flex items-center gap-2 flex-wrap justify-end">
+                <select id="globalCurrency" onchange="changeGlobalCurrency(this.value)" title="Оберіть базову валюту для відображення всіх загальних статків та підсумків" class="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-700 bg-slate-900 text-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+                    <option value="UAH">UAH (₴)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="PLN">PLN (zł)</option>
+                </select>
+
+                <button onclick="exportJSON()" title="Завантажити резервну копію всіх ваших даних у форматі JSON" class="p-2 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors">
+                    <i class="fa-solid fa-download"></i> JSON
+                </button>
+                <button onclick="exportCSV()" title="Експортувати історію транзакцій у файл CSV для Excel" class="p-2 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors">
+                    <i class="fa-solid fa-file-csv"></i> CSV
+                </button>
+                <input type="file" id="importFileInput" onchange="importJSON(event)" style="display:none">
+                <button onclick="document.getElementById('importFileInput').click()" title="Завантажити раніше збережений файл JSON з даними" class="p-2 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors">
+                    <i class="fa-solid fa-upload"></i>
+                </button>
+                <input type="file" id="statementFileInput" accept=".csv,.xlsx,.xls,.txt" onchange="handleStatementFile(event)" style="display:none">
+                <button onclick="document.getElementById('statementFileInput').click()" title="Завантажити виписку з банку (CSV/Excel) та автоматично внести операції у Бюджет" class="p-2 text-xs bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-800/50 rounded-lg transition-colors">
+                    <i class="fa-solid fa-building-columns"></i> Виписка
+                </button>
+                <button onclick="clearAllData()" title="Очистити всі збережені дані та розрахунки" class="p-2 text-xs bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 rounded-lg transition-colors">
+                    <i class="fa-solid fa-trash-can"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- NAVIGATION TABS -->
+        <div class="flex gap-2 mb-6 border-b border-slate-800 overflow-x-auto pb-1">
+            <button id="tabNetWorthBtn" onclick="switchTab('netWorth')" title="Перегляд загального капіталу з усіх джерел, аналіз валют та реєстр активів" class="pb-3 px-4 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-vault"></i> Загальний Капітал (Net Worth)
+            </button>
+            <button id="tabBudgetBtn" onclick="switchTab('budget')" title="Облік щоденних доходів і витрат, фільтрація за місяцями та аналітичні графіки" class="pb-3 px-4 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-chart-pie"></i> Бюджет
+            </button>
+            <button id="tabOvdpBtn" onclick="switchTab('ovdp')" title="Калькулятор розрахунку чистих доходів від державних облігацій (0% податків)" class="pb-3 px-4 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-landmark"></i> Калькулятор ОВДП
+            </button>
+            <button id="tabInvestBtn" onclick="switchTab('invest')" title="Розрахунок складного відсотка та трекер інвестиційного портфеля (ETF, крипта, акції)" class="pb-3 px-4 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-chart-line"></i> Інвестиції та Портфель
+            </button>
+            <button id="tabGoalsBtn" onclick="switchTab('goals')" title="Створення фінансових цілей та накопичення коштів у скарбничку" class="pb-3 px-4 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-bullseye"></i> Скарбничка / Цілі
+            </button>
+            <button id="tabPassiveBtn" onclick="switchTab('passive')" title="Розрахунок пасивного доходу від портфеля та прогноз досягнення фінансової незалежності" class="pb-3 px-4 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap">
+                <i class="fa-solid fa-hand-holding-dollar"></i> Пасивний Дохід
+            </button>
+        </div>
+
+        <!-- TAB 0: NET WORTH OVERVIEW -->
+        <div id="tabNetWorth" class="block">
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+                <div title="Загальна сума всіх ваших статків у перерахунку на базову валюту" class="bg-slate-800 p-5 rounded-2xl border border-indigo-500/30 shadow-lg flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-indigo-400">Загальний Капітал</span>
+                        <p id="nwTotalCapital" class="text-2xl font-black text-slate-50 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-indigo-950/80 rounded-xl flex items-center justify-center text-indigo-400 border border-indigo-800/50">
+                        <i class="fa-solid fa-vault text-lg"></i>
+                    </div>
+                </div>
+
+                <div onclick="switchTab('budget')" title="Перейти до розділу Бюджет (натисніть для переходу)" class="bg-slate-800 hover:bg-slate-750 p-5 rounded-2xl border border-slate-700/80 hover:border-emerald-500/50 transition-all cursor-pointer group flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 group-hover:text-emerald-400 transition-colors">Готівка та Картки <i class="fa-solid fa-arrow-right text-[10px] ml-1"></i></span>
+                        <p id="nwLiquidCash" class="text-xl font-bold text-emerald-400 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-emerald-950/60 rounded-xl flex items-center justify-center text-emerald-400 border border-emerald-800/40 group-hover:scale-110 transition-transform">
+                        <i class="fa-solid fa-money-bill-wave"></i>
+                    </div>
+                </div>
+
+                <div onclick="switchTab('invest')" title="Перейти до Інвестицій та ОВДП (натисніть для переходу)" class="bg-slate-800 hover:bg-slate-750 p-5 rounded-2xl border border-slate-700/80 hover:border-indigo-500/50 transition-all cursor-pointer group flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 group-hover:text-indigo-400 transition-colors">Інвестиції та ОВДП <i class="fa-solid fa-arrow-right text-[10px] ml-1"></i></span>
+                        <p id="nwInvestmentsTotal" class="text-xl font-bold text-indigo-400 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-400 border border-indigo-800/40 group-hover:scale-110 transition-transform">
+                        <i class="fa-solid fa-chart-line"></i>
+                    </div>
+                </div>
+
+                <div onclick="switchTab('goals')" title="Перейти до Скарбнички (натисніть для переходу)" class="bg-slate-800 hover:bg-slate-750 p-5 rounded-2xl border border-slate-700/80 hover:border-amber-500/50 transition-all cursor-pointer group flex items-center justify-between">
+                    <div>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 group-hover:text-amber-400 transition-colors">У Скарбничках <i class="fa-solid fa-arrow-right text-[10px] ml-1"></i></span>
+                        <p id="nwGoalsTotal" class="text-xl font-bold text-amber-400 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-amber-950/60 rounded-xl flex items-center justify-center text-amber-400 border border-amber-800/40 group-hover:scale-110 transition-transform">
+                        <i class="fa-solid fa-piggy-bank"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NET WORTH HISTORY CHART -->
+            <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80 mb-6">
+                <h3 class="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-chart-line text-indigo-400"></i> Динаміка капіталу в часі
+                </h3>
+                <div class="relative h-56">
+                    <canvas id="nwHistoryChart"></canvas>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-2">Знімок капіталу зберігається щодня автоматично. Історичні значення перераховуються за поточним курсом НБУ (без урахування зміни курсу в минулому).</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80">
+                    <h3 class="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-pie-chart text-indigo-400"></i> Розподіл за категоріями активів
+                    </h3>
+                    <div class="relative h-56 flex items-center justify-center">
+                        <canvas id="nwAssetChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80">
+                    <h3 class="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-globe text-indigo-400"></i> Валютна диверсифікація (% портфеля)
+                    </h3>
+                    <div class="relative h-56 flex items-center justify-center">
+                        <canvas id="nwCurrencyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700/80">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                        <i class="fa-solid fa-layer-group text-indigo-400"></i> Повний реєстр активів
+                    </h2>
+                    <span class="text-xs text-slate-400 hidden sm:inline">Клікніть на суму, щоб змінити її; на категорію — щоб перейти до розділу</span>
+                </div>
+                <div class="flex flex-wrap items-end gap-2 mb-4">
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Категорія</label>
+                        <select id="filterNwCategory" onchange="renderNetWorth()" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-200"></select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Валюта</label>
+                        <select id="filterNwCurrency" onchange="renderNetWorth()" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-200">
+                            <option value="">Усі</option>
+                            <option value="UAH">UAH</option>
+                            <option value="USD">USD</option>
+                            <option value="EUR">EUR</option>
+                            <option value="PLN">PLN</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Сортування</label>
+                        <select id="sortNw" onchange="renderNetWorth()" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-200">
+                            <option value="amount_desc">Сума ↓</option>
+                            <option value="amount_asc">Сума ↑</option>
+                            <option value="name_asc">Назва (А-Я)</option>
+                        </select>
+                    </div>
+                    <button onclick="resetNwFilters()" title="Скинути фільтри реєстру" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg">
+                        <i class="fa-solid fa-filter-circle-xmark"></i> Скинути
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] text-slate-400 uppercase bg-slate-900/60 border-b border-slate-700">
+                            <tr>
+                                <th class="py-3 px-4">Категорія / Актив</th>
+                                <th class="py-3 px-4">Тип</th>
+                                <th class="py-3 px-4 text-right">Сума у валюті</th>
+                                <th class="py-3 px-4 text-right">Курс НБУ</th>
+                                <th class="py-3 px-4 text-right">Еквівалент (<span class="nwTargetCurrName">UAH</span>)</th>
+                                <th class="py-3 px-4 text-right">Частка %</th>
+                            </tr>
+                        </thead>
+                        <tbody id="nwAssetTableBody" class="divide-y divide-slate-700/60">
+                            <!-- Dynamic Asset Rows -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 1: BUDGET & ANALYTICS -->
+        <div id="tabBudget" class="hidden">
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700/80 mb-4">
+                <div class="flex flex-wrap items-end gap-3">
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Місяць</label>
+                        <div class="flex items-center gap-1.5">
+                            <input type="month" id="monthFilter" onchange="renderBudget()" title="Оберіть конкретний місяць для перегляду аналітики" class="px-3 py-1.5 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <button onclick="document.getElementById('monthFilter').value=''; renderBudget();" title="Показати транзакції за весь період" class="text-xs text-indigo-400 hover:underline whitespace-nowrap">Усі</button>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Категорія</label>
+                        <select id="filterCategory" onchange="renderBudget()" class="px-3 py-1.5 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-200"></select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Тип</label>
+                        <select id="filterType" onchange="renderBudget()" class="px-3 py-1.5 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-200">
+                            <option value="">Усі</option>
+                            <option value="income">Дохід</option>
+                            <option value="expense">Витрата</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Валюта</label>
+                        <select id="filterCurrency" onchange="renderBudget()" class="px-3 py-1.5 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-200">
+                            <option value="">Усі</option>
+                            <option value="UAH">UAH</option>
+                            <option value="USD">USD</option>
+                            <option value="EUR">EUR</option>
+                            <option value="PLN">PLN</option>
+                        </select>
+                    </div>
+                    <div class="flex-1 min-w-[140px]">
+                        <label class="block text-[11px] font-semibold text-slate-400 mb-1">Пошук за описом</label>
+                        <input type="text" id="filterSearch" oninput="renderBudget()" placeholder="напр. Сільпо" class="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-200 placeholder-slate-500">
+                    </div>
+                    <button onclick="resetBudgetFilters()" title="Скинути всі фільтри" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl whitespace-nowrap">
+                        <i class="fa-solid fa-filter-circle-xmark"></i> Скинути
+                    </button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                <div title="Загальна сума надходжень за обраний період" class="bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-700/80 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Доходи</span>
+                        <p id="totalIncome" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-emerald-950/60 rounded-xl flex items-center justify-center text-emerald-400 border border-emerald-800/40">
+                        <i class="fa-solid fa-arrow-down-left"></i>
+                    </div>
+                </div>
+
+                <div title="Загальна сума витрат за обраний період" class="bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-700/80 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Витрати</span>
+                        <p id="totalExpense" class="text-2xl font-bold text-rose-400 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-rose-950/60 rounded-xl flex items-center justify-center text-rose-400 border border-rose-800/40">
+                        <i class="fa-solid fa-arrow-up-right"></i>
+                    </div>
+                </div>
+
+                <div title="Різниця між доходами та витратами" class="bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-700/80 flex items-center justify-between">
+                    <div>
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Чистий Баланс</span>
+                        <p id="netBalance" class="text-2xl font-bold text-indigo-400 mt-1">0</p>
+                    </div>
+                    <div class="w-10 h-10 bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-400 border border-indigo-800/40">
+                        <i class="fa-solid fa-scale-balanced"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 p-4 rounded-2xl shadow-sm border border-slate-700/80 mb-6" title="Відсоток доходу, який ви витратили за період">
+                <div class="flex justify-between items-center text-xs mb-1.5">
+                    <span class="font-medium text-slate-300">Використання доходу на витрати</span>
+                    <span id="budgetPercent" class="font-bold text-slate-300">0%</span>
+                </div>
+                <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden">
+                    <div id="progressBar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div class="bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-700/80">
+                    <h3 class="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-pie text-indigo-400"></i> Структура витрат
+                    </h3>
+                    <div class="relative h-56 flex items-center justify-center">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+                <div class="bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-700/80">
+                    <h3 class="text-sm font-bold text-slate-200 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-line text-indigo-400"></i> Динаміка операцій
+                    </h3>
+                    <div class="relative h-56">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                <div class="lg:col-span-2 bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                    <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-plus text-indigo-400"></i> Додати операцію
+                    </h2>
+                    <form onsubmit="addTransaction(event)" class="space-y-3">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" id="typeExpenseBtn" onclick="setType('expense')" title="Зафіксувати витрату коштів" class="py-2 text-xs font-medium rounded-xl border border-rose-500 bg-rose-950/50 text-rose-300">
+                                Витрата
+                            </button>
+                            <button type="button" id="typeIncomeBtn" onclick="setType('income')" title="Зафіксувати надходження коштів" class="py-2 text-xs font-medium rounded-xl border border-slate-700 bg-slate-900 text-slate-400">
+                                Дохід
+                            </button>
+                        </div>
+
+                        <div>
+                            <input type="text" id="description" required placeholder="Назва (напр. Супермаркет)" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="number" id="amount" step="0.01" min="0.01" required placeholder="Сума" class="col-span-2 px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                            <select id="txCurrency" title="Оберіть валюту операції" class="px-2 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                                <option value="UAH">UAH ₴</option>
+                                <option value="USD">USD $</option>
+                                <option value="EUR">EUR €</option>
+                                <option value="PLN">PLN zł</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <select id="category" onchange="checkCategoryNavigation(this.value)" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                                <!-- Populated dynamically by renderCategoryOptions() -->
+                            </select>
+                            <div id="categoryCrossLink" class="mt-1 text-[11px] text-indigo-400 hidden">
+                                💡 <a onclick="switchTab('ovdp')" class="underline cursor-pointer hover:text-indigo-300">Перейти до калькулятора ОВДП для розрахунку</a>
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                                <input type="text" id="newCategoryInput" placeholder="Нова категорія" class="flex-1 px-2 py-1.5 text-[11px] rounded-lg border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500">
+                                <button type="button" onclick="addCategory()" title="Додати нову категорію витрат/доходів" class="px-2.5 py-1.5 text-[11px] bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg whitespace-nowrap">+ Категорія</button>
+                            </div>
+                        </div>
+
+                        <div>
+                            <input type="date" id="txDate" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                        </div>
+
+                        <label class="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none" title="Автоматично додаватиме таку саму операцію щомісяця">
+                            <input type="checkbox" id="txRecurring" class="accent-indigo-500">
+                            Повторювати щомісяця (авто-додавання)
+                        </label>
+
+                        <button type="submit" id="txSubmitBtn" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs transition-colors shadow-lg shadow-indigo-600/30">
+                            Зберегти запис
+                        </button>
+                        <button type="button" id="txCancelBtn" onclick="cancelTxEdit()" class="hidden w-full py-2 text-xs text-slate-400 hover:text-slate-200 underline">
+                            Скасувати редагування
+                        </button>
+                    </form>
+
+                    <div class="mt-4 pt-4 border-t border-slate-700/60">
+                        <h3 class="text-xs font-bold text-slate-300 mb-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-rotate text-indigo-400"></i> Повторювані щомісяця
+                        </h3>
+                        <div id="recurringList" class="space-y-1.5"></div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-3 bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-indigo-400"></i> Історія операцій
+                        </h2>
+                        <span id="itemCount" class="text-xs font-semibold px-2.5 py-0.5 bg-slate-900 text-slate-300 rounded-full border border-slate-700">0</span>
+                    </div>
+                    <select id="sortTx" class="hidden">
+                        <option value="date_desc">Дата ↓ (нові)</option>
+                        <option value="date_asc">Дата ↑ (старі)</option>
+                        <option value="amount_desc">Сума ↓</option>
+                        <option value="amount_asc">Сума ↑</option>
+                        <option value="income_first">Спочатку доходи</option>
+                        <option value="expense_first">Спочатку витрати</option>
+                    </select>
+                    <div class="flex flex-wrap items-center gap-1.5 mb-3">
+                        <span class="text-[10px] text-slate-500 mr-0.5">Сортувати:</span>
+                        <button onclick="setSortTx('date_desc')" data-sort="date_desc" class="quick-sort-btn px-2.5 py-1 text-[11px] rounded-lg transition-colors">Дата ↓</button>
+                        <button onclick="setSortTx('date_asc')" data-sort="date_asc" class="quick-sort-btn px-2.5 py-1 text-[11px] rounded-lg transition-colors">Дата ↑</button>
+                        <button onclick="setSortTx('amount_desc')" data-sort="amount_desc" class="quick-sort-btn px-2.5 py-1 text-[11px] rounded-lg transition-colors">Сума ↓</button>
+                        <button onclick="setSortTx('amount_asc')" data-sort="amount_asc" class="quick-sort-btn px-2.5 py-1 text-[11px] rounded-lg transition-colors">Сума ↑</button>
+                        <button onclick="setSortTx('income_first')" data-sort="income_first" class="quick-sort-btn px-2.5 py-1 text-[11px] rounded-lg transition-colors">Спочатку доходи</button>
+                        <button onclick="setSortTx('expense_first')" data-sort="expense_first" class="quick-sort-btn px-2.5 py-1 text-[11px] rounded-lg transition-colors">Спочатку витрати</button>
+                    </div>
+                    <div class="overflow-y-auto max-h-[70vh] min-h-[360px] space-y-2 pr-1" id="transactionsList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: OVDP CALCULATOR -->
+        <div id="tabOvdp" class="hidden">
+            <div class="bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80 mb-8">
+                <div class="flex justify-between items-start sm:items-center flex-col sm:flex-row gap-1 mb-4">
+                    <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                        <i class="fa-solid fa-list-ul text-indigo-400"></i> Доступні ОВДП (ваш список)
+                    </h2>
+                    <span class="text-[10px] text-slate-500">Автоматичного оновлення курсів ОВДП немає — додайте випуски, які бачите у своєму брокері, і вони збережуться тут</span>
+                </div>
+
+                <form onsubmit="addOvdpWatchlistItem(event)" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 mb-4">
+                    <input type="text" id="wlName" required placeholder="Назва / ISIN" class="col-span-2 px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500">
+                    <input type="number" id="wlNominal" value="1000" step="1" placeholder="Номінал" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                    <input type="number" id="wlCoupon" step="0.1" placeholder="Купон %" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                    <input type="date" id="wlMaturity" required title="Дата погашення" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                    <input type="number" id="wlPrice" step="0.01" placeholder="Ціна за 1 шт." class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                    <select id="wlCurrency" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                        <option value="UAH">UAH</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                    </select>
+                    <button type="submit" class="px-2.5 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium col-span-2 sm:col-span-1">+ Додати</button>
+                </form>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] text-slate-400 uppercase bg-slate-900/60 border-b border-slate-700">
+                            <tr>
+                                <th class="py-2 px-3">Назва / ISIN</th>
+                                <th class="py-2 px-3 text-right">Номінал</th>
+                                <th class="py-2 px-3 text-right">Купон</th>
+                                <th class="py-2 px-3">Погашення</th>
+                                <th class="py-2 px-3 text-right">Ціна</th>
+                                <th class="py-2 px-3"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="ovdpWatchlistBody" class="divide-y divide-slate-700/60"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                <div class="lg:col-span-2 bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                    <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-calculator text-indigo-400"></i> Параметри облігації
+                    </h2>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Назва / ISIN (необов'язково)</label>
+                            <input type="text" id="ovdpName" placeholder="ОВДП 04.08.2027 (UA4000238422)" value="ОВДП 04.08.2027 (UA4000238422)" oninput="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Валюта випуску</label>
+                            <select id="ovdpCurrency" onchange="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                                <option value="UAH">Гривня (UAH ₴)</option>
+                                <option value="USD">Долар (USD $)</option>
+                                <option value="EUR">Євро (EUR €)</option>
+                            </select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1" title="Номінальна вартість 1 облігації, зазвичай 1000">Номінал</label>
+                                <input type="number" id="ovdpNominal" value="1000" step="1" oninput="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1" title="Фіксована річна ставка купонного доходу цього випуску">Ставка купона (%)</label>
+                                <input type="number" id="ovdpCouponRate" value="17.1" step="0.1" oninput="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Періодичність виплат купона</label>
+                            <select id="ovdpFrequency" onchange="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                                <option value="2" selected>Двічі на рік (стандарт для ОВДП)</option>
+                                <option value="1">Раз на рік</option>
+                            </select>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1" title="Дата купівлі облігацій">Дата купівлі</label>
+                                <input type="date" id="ovdpStartDate" onchange="calculateOvdp()" class="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1" title="Дата погашення облігації">Дата погашення</label>
+                                <input type="date" id="ovdpMaturityDate" value="2027-08-04" onchange="calculateOvdp()" class="w-full px-2.5 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1" title="Ринкова ціна за 1 облігацію — може відрізнятись від номіналу">Ціна купівлі (за 1 шт.)</label>
+                                <input type="number" id="ovdpPrice" value="1037.75" step="0.01" oninput="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-400 mb-1">Кількість, шт.</label>
+                                <input type="number" id="ovdpQuantity" value="1" min="1" step="1" oninput="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Витрати / комісії (за всю операцію)</label>
+                            <input type="number" id="ovdpFee" value="0" oninput="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                        </div>
+
+                        <div class="pt-3 border-t border-slate-700/60">
+                            <label class="block text-xs font-medium text-slate-400 mb-1" title="Якщо продати облігацію зараз за цією ціною — для порівняння з дохідністю купівлі">Ціна продажу (за 1 шт., необов'язково)</label>
+                            <input type="number" id="ovdpSellPrice" step="0.01" placeholder="напр. 1031.83" oninput="calculateOvdp()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-3 space-y-6">
+                    <div class="bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                        <h2 class="text-base font-bold text-slate-100 mb-3 flex items-center gap-2">
+                            <i class="fa-solid fa-chart-line text-indigo-400"></i> Результат
+                        </h2>
+                        <div class="bg-emerald-950/40 border border-emerald-800/50 rounded-xl p-3 mb-4 flex items-start gap-2.5">
+                            <i class="fa-solid fa-shield-halved text-emerald-400 text-base mt-0.5"></i>
+                            <div class="text-xs text-emerald-300">
+                                <span class="font-bold">Пільга 0% податку!</span> Доходи фізичних осіб від ОВДП звільнені від ПДФО (0%) та військового збору (0%).
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs mb-4">
+                            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                                <span class="text-slate-400">Дохідність (YTM)</span>
+                                <p id="resYTM" class="text-base font-bold text-indigo-400 mt-1">0%</p>
+                            </div>
+                            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                                <span class="text-slate-400">Сума купівлі</span>
+                                <p id="resInvestAmount" class="text-base font-bold text-slate-100 mt-1">0</p>
+                            </div>
+                            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                                <span class="text-slate-400">Витрати</span>
+                                <p id="resFees" class="text-base font-bold text-slate-100 mt-1">0</p>
+                            </div>
+                            <div class="bg-slate-900/80 p-3 rounded-xl border border-slate-700/60">
+                                <span class="text-slate-400">Виплата (всього)</span>
+                                <p id="resTotalReturn" class="text-base font-bold text-indigo-400 mt-1">0</p>
+                            </div>
+                            <div class="bg-slate-900/80 p-3 rounded-xl border border-emerald-800/40 col-span-2 sm:col-span-1">
+                                <span class="text-slate-400">Очікуваний дохід</span>
+                                <p id="resNetProfit" class="text-base font-bold text-emerald-400 mt-1">+0</p>
+                            </div>
+                        </div>
+
+                        <div id="resSellBlock" class="hidden grid grid-cols-2 gap-3 text-xs mb-4">
+                            <div class="bg-amber-950/30 p-3 rounded-xl border border-amber-800/40">
+                                <span class="text-amber-300/80">Дохідність продажу (YTM)</span>
+                                <p id="resSellYTM" class="text-base font-bold text-amber-400 mt-1">0%</p>
+                            </div>
+                            <div class="bg-amber-950/30 p-3 rounded-xl border border-amber-800/40">
+                                <span class="text-amber-300/80">Різниця ціни купівля/продаж (× кількість)</span>
+                                <p id="resSellSpread" class="text-base font-bold text-amber-400 mt-1">0</p>
+                            </div>
+                        </div>
+
+                        <button onclick="addOvdpProfitToBudget()" title="Автоматично внести весь очікуваний дохід у доходи вашого Бюджету на дату погашення" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded-xl text-xs transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20">
+                            <i class="fa-solid fa-plus-circle"></i> Зарахувати дохід у Бюджет
+                        </button>
+                    </div>
+
+                    <div class="bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                        <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-calendar-days text-indigo-400"></i> Графік виплат
+                        </h2>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs text-left text-slate-300">
+                                <thead class="text-[11px] text-slate-400 uppercase bg-slate-900/60 border-b border-slate-700">
+                                    <tr>
+                                        <th class="py-2 px-3">Дата</th>
+                                        <th class="py-2 px-3">Тип</th>
+                                        <th class="py-2 px-3 text-right">Сума, за 1 шт.</th>
+                                        <th class="py-2 px-3 text-right">Я отримаю</th>
+                                        <th class="py-2 px-3"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ovdpScheduleBody" class="divide-y divide-slate-700/60"></tbody>
+                                <tfoot>
+                                    <tr class="font-bold text-slate-100 border-t border-slate-700">
+                                        <td class="py-2 px-3" colspan="3">Всього</td>
+                                        <td id="ovdpScheduleTotal" class="py-2 px-3 text-right">0</td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-2">Дати виплат розраховуються орієнтовно (крок 6/12 місяців від дати погашення) і можуть відрізнятись від фактичного графіка емітента на 1-2 дні.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: INVESTMENTS & PORTFOLIO -->
+        <div id="tabInvest" class="hidden">
+            <div class="bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80 mb-8">
+                <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-seedling text-indigo-400"></i> Калькулятор складного відсотка
+                </h2>
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Початковий капітал</label>
+                        <input type="number" id="invStart" value="100000" oninput="calcCompound()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Щомісячний внесок</label>
+                        <input type="number" id="invMonthly" value="5000" oninput="calcCompound()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Річна дохідність (%)</label>
+                        <input type="number" id="invRate" value="10" oninput="calcCompound()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1">Термін (років)</label>
+                        <input type="number" id="invYears" value="10" min="1" max="40" oninput="calcCompound()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-900/80 p-4 rounded-xl border border-slate-700/60 text-xs">
+                    <div>
+                        <span class="text-slate-400 font-semibold uppercase">Власні внески</span>
+                        <p id="resInvDeposits" class="text-base font-bold text-slate-200">0</p>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 font-semibold uppercase">Прибуток від відсотків</span>
+                        <p id="resInvProfit" class="text-base font-bold text-emerald-400">0</p>
+                    </div>
+                    <div>
+                        <span class="text-slate-400 font-semibold uppercase">Разом</span>
+                        <p id="resInvTotal" class="text-lg font-extrabold text-indigo-400">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                <div class="lg:col-span-2 bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                    <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-briefcase text-indigo-400"></i> Додати актив
+                    </h2>
+                    <form onsubmit="addAsset(event)" class="space-y-3">
+                        <input type="text" id="assetName" required placeholder="Назва (S&P 500, ОВДП 2027, BTC)" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500">
+                        <select id="assetCategory" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                            <option value="ОВДП">🏛️ ОВДП (Державні облігації)</option>
+                            <option value="ETF / Акції">📈 ETF / Акції</option>
+                            <option value="Криптовалюта">🪙 Криптовалюта</option>
+                            <option value="Депозит">🏦 Депозит</option>
+                            <option value="Нерухомість">🏢 Нерухомість</option>
+                            <option value="Золото">️ Золото</option>
+                        </select>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="number" id="assetValue" step="1" required placeholder="Вартість" class="col-span-2 px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500">
+                            <select id="assetCurrency" title="Оберіть валюту вашого активу" class="px-2 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                                <option value="UAH">UAH ₴</option>
+                                <option value="USD">USD $</option>
+                                <option value="EUR">EUR €</option>
+                                <option value="PLN">PLN zł</option>
+                            </select>
+                        </div>
+                        <input type="number" id="assetProfitPct" step="0.1" value="5.0" placeholder="Прибуток (%)" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                        <button type="submit" id="assetSubmitBtn" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs transition-colors">
+                            Зберегти в портфель
+                        </button>
+                        <button type="button" id="assetCancelBtn" onclick="cancelAssetEdit()" class="hidden w-full py-2 text-xs text-slate-400 hover:text-slate-200 underline">
+                            Скасувати редагування
+                        </button>
+                    </form>
+                </div>
+
+                <div class="lg:col-span-3 bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                    <div class="flex justify-between items-center mb-3">
+                        <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-pie-chart text-indigo-400"></i> Ваш Портфель
+                        </h2>
+                        <span id="totalPortfolioValue" class="text-sm font-bold text-indigo-400">0</span>
+                    </div>
+                    <div class="flex flex-wrap items-end gap-2 mb-3">
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-400 mb-1">Категорія</label>
+                            <select id="filterAssetCategory" onchange="renderPortfolio()" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-200">
+                                <option value="">Усі</option>
+                                <option value="ОВДП">ОВДП</option>
+                                <option value="ETF / Акції">ETF / Акції</option>
+                                <option value="Криптовалюта">Криптовалюта</option>
+                                <option value="Депозит">Депозит</option>
+                                <option value="Нерухомість">Нерухомість</option>
+                                <option value="Золото">Золото</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-400 mb-1">Сортування</label>
+                            <select id="sortAsset" onchange="renderPortfolio()" class="px-2.5 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-200">
+                                <option value="value_desc">Вартість ↓</option>
+                                <option value="value_asc">Вартість ↑</option>
+                                <option value="profit_desc">Прибуток % ↓</option>
+                                <option value="profit_asc">Прибуток % ↑</option>
+                            </select>
+                        </div>
+                        <span class="text-[10px] text-slate-500 pb-1.5">Клікніть на вартість чи % прибутку, щоб змінити</span>
+                    </div>
+                    <div class="overflow-y-auto max-h-[360px] space-y-2 pr-1" id="portfolioList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: GOALS / PIGGY BANK -->
+        <div id="tabGoals" class="hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                <div class="lg:col-span-2 bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                    <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-bullseye text-indigo-400"></i> Створити ціль
+                    </h2>
+                    <form onsubmit="addGoal(event)" class="space-y-3">
+                        <input type="text" id="goalTitle" required placeholder="Назва цілі (напр. Авто)" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500">
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="number" id="goalTarget" step="0.01" min="0.01" required placeholder="Цільова сума" class="col-span-2 px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100 placeholder-slate-500">
+                            <select id="goalCurrency" class="px-2 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                                <option value="UAH">UAH ₴</option>
+                                <option value="USD">USD $</option>
+                                <option value="EUR">EUR €</option>
+                                <option value="PLN">PLN zł</option>
+                            </select>
+                        </div>
+                        <button type="submit" id="goalSubmitBtn" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs transition-colors">
+                            Створити Скарбничку
+                        </button>
+                        <button type="button" id="goalCancelBtn" onclick="cancelGoalEdit()" class="hidden w-full py-2 text-xs text-slate-400 hover:text-slate-200 underline">
+                            Скасувати редагування
+                        </button>
+                    </form>
+                </div>
+
+                <div class="lg:col-span-3 bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-700/80">
+                    <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-piggy-bank text-indigo-400"></i> Мої Цілі
+                    </h2>
+                    <div class="space-y-3" id="goalsList"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 5: PASSIVE INCOME CALCULATOR -->
+        <div id="tabPassive" class="hidden">
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+                <div title="Сумарна вартість активів портфеля, що враховуються в розрахунку доходу" class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Пасивний капітал</span>
+                    <p id="piCapital" class="text-xl font-bold text-slate-100 mt-1">0</p>
+                </div>
+                <div title="Середньозважена очікувана дохідність портфеля (за полем «Прибуток %» кожного активу)" class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Середня дохідність</span>
+                    <p id="piAvgYield" class="text-xl font-bold text-indigo-400 mt-1">0%</p>
+                </div>
+                <div title="Очікуваний пасивний дохід щомісяця за поточним портфелем" class="bg-slate-800 p-5 rounded-2xl border border-emerald-500/30">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-emerald-400">Дохід / місяць</span>
+                    <p id="piMonthlyIncome" class="text-xl font-bold text-emerald-400 mt-1">0</p>
+                </div>
+                <div title="Очікуваний пасивний дохід за рік" class="bg-slate-800 p-5 rounded-2xl border border-slate-700/80">
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Дохід / рік</span>
+                    <p id="piAnnualIncome" class="text-xl font-bold text-slate-100 mt-1">0</p>
+                </div>
+            </div>
+            <p class="text-[10px] text-slate-500 mb-6">Розрахунок ґрунтується на полі «Прибуток (%)» кожного активу з вкладки «Інвестиції» — тож він враховує весь портфель, включно з активами, що не виплачують реальний дохід (напр. криптовалюта), а лише орієнтовно зростають у ціні. Для активів категорії «Депозит» дохід показано за вирахуванням податку 23% (18% ПДФО + 5% військовий збір) — на відміну від ОВДП, дохід за депозитами оподатковується. Сприймайте цифри як оцінку.</p>
+
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700/80 mb-6" title="Наскільки поточний пасивний дохід покриває середньомісячні витрати">
+                <div class="flex justify-between items-center text-xs mb-1.5">
+                    <span class="font-medium text-slate-300">Ступінь фінансової незалежності (покриття витрат пасивним доходом)</span>
+                    <span id="piCoveragePercent" class="font-bold text-slate-300">0%</span>
+                </div>
+                <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden">
+                    <div id="piCoverageBar" class="bg-emerald-500 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <p class="text-[10px] text-slate-500 mt-1.5">Середні витрати/місяць (за історією операцій): <span id="piAvgExpense" class="font-semibold text-slate-400">0</span></p>
+            </div>
+
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700/80 mb-8">
+                <h2 class="text-base font-bold text-slate-100 mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-layer-group text-indigo-400"></i> Активи, що генерують дохід
+                </h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] text-slate-400 uppercase bg-slate-900/60 border-b border-slate-700">
+                            <tr>
+                                <th class="py-3 px-4">Актив</th>
+                                <th class="py-3 px-4">Категорія</th>
+                                <th class="py-3 px-4 text-right">Вартість</th>
+                                <th class="py-3 px-4 text-right">Дохідність</th>
+                                <th class="py-3 px-4 text-right">Дохід/міс</th>
+                            </tr>
+                        </thead>
+                        <tbody id="piAssetTableBody" class="divide-y divide-slate-700/60"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700/80">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                        <i class="fa-solid fa-flag-checkered text-indigo-400"></i> Прогноз досягнення пасивного доходу
+                    </h2>
+                    <button onclick="syncPassiveCalculatorInputs()" title="Заповнити поля поточними даними з портфеля та бюджету" class="text-xs text-indigo-400 hover:underline flex items-center gap-1.5">
+                        <i class="fa-solid fa-rotate"></i> Синхронізувати з даними
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                    <div class="lg:col-span-2 space-y-3">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Стартовий капітал</label>
+                            <input type="number" id="piStartCapital" oninput="calculatePassiveProjection()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Щомісячний внесок</label>
+                            <input type="number" id="piMonthlyContribution" value="0" oninput="calculatePassiveProjection()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Середня дохідність (%)</label>
+                            <input type="number" id="piYieldInput" step="0.1" oninput="calculatePassiveProjection()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-slate-400 mb-1">Цільовий пасивний дохід / місяць</label>
+                            <input type="number" id="piTargetIncome" oninput="calculatePassiveProjection()" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-700 bg-slate-900 text-slate-100">
+                        </div>
+
+                        <div class="bg-slate-900/80 p-4 rounded-xl border border-slate-700/60 text-xs space-y-2 mt-2">
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Поточний дохід/міс (за проекцією):</span>
+                                <span id="piCurrentProjIncome" class="font-bold text-emerald-400">0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Час до цілі:</span>
+                                <span id="piMonthsToGoal" class="font-bold text-indigo-400">—</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-slate-400">Орієнтовна дата:</span>
+                                <span id="piGoalDate" class="font-bold text-slate-200">—</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="lg:col-span-3">
+                        <div class="relative h-72">
+                            <canvas id="piProjectionChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- BANK STATEMENT IMPORT MODAL -->
+    <div id="statementModal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl">
+            <div class="flex justify-between items-center p-5 border-b border-slate-700">
+                <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                    <i class="fa-solid fa-building-columns text-indigo-400"></i> Імпорт виписки з банку
+                </h2>
+                <button onclick="closeStatementModal()" class="text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="p-5 overflow-y-auto space-y-4">
+                <p class="text-[11px] text-slate-500">Оберіть, які стовпці файлу відповідають даті, опису та сумі операції. Застосунок намагається визначити це автоматично — перевірте результат у таблиці нижче перед імпортом.</p>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Кодування файлу</label>
+                        <select id="stmtEncoding" onchange="onStatementEncodingChange()" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                            <option value="65001">UTF-8 (типово)</option>
+                            <option value="1251">Windows-1251 (якщо кирилиця "кракозябри")</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Рядок заголовків</label>
+                        <select id="stmtHeaderRow" onchange="populateColumnSelectsAndGuess(); renderStatementPreview();" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100"></select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Стовпець з датою</label>
+                        <select id="stmtDateCol" onchange="renderStatementPreview()" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100"></select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Стовпець з описом</label>
+                        <select id="stmtDescCol" onchange="renderStatementPreview()" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100"></select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Стовпець із сумою</label>
+                        <select id="stmtAmountCol" onchange="renderStatementPreview()" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100"></select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Стовпець типу (необов'язково)</label>
+                        <select id="stmtTypeCol" onchange="renderStatementPreview()" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                            <option value="">— визначати за знаком суми —</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Стовпець валюти (необов'язково)</label>
+                        <select id="stmtCurrencyCol" onchange="renderStatementPreview()" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                            <option value="">— одна валюта для всіх —</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Валюта за замовчуванням</label>
+                        <select id="stmtCurrency" onchange="renderStatementPreview()" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                            <option value="UAH">UAH ₴</option>
+                            <option value="USD">USD $</option>
+                            <option value="EUR">EUR €</option>
+                            <option value="PLN">PLN zł</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Стовпець категорії банку (необов'язково)</label>
+                        <select id="stmtBankCategoryCol" onchange="renderStatementPreview()" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100">
+                            <option value="">— не використовувати —</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-medium text-slate-400 mb-1">Категорія за замовчуванням</label>
+                        <select id="stmtCategory" class="w-full px-2 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-900 text-slate-100"></select>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-x-5 gap-y-2">
+                    <label class="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none">
+                        <input type="checkbox" id="stmtInvertSign" onchange="renderStatementPreview()" class="accent-indigo-500">
+                        Інвертувати знак суми (якщо витрати показані додатними, а доходи від'ємними)
+                    </label>
+                    <label class="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none">
+                        <input type="checkbox" id="stmtSkipTransfers" checked onchange="renderStatementPreview()" class="accent-indigo-500">
+                        Пропускати перекази між власними картками/рахунками
+                    </label>
+                </div>
+
+                <div class="border border-slate-700/60 rounded-xl overflow-hidden">
+                    <div class="overflow-x-auto max-h-72 overflow-y-auto">
+                        <table class="w-full text-[11px] text-left text-slate-300">
+                            <thead class="text-[10px] text-slate-400 uppercase bg-slate-900/80 sticky top-0">
+                                <tr>
+                                    <th class="py-2 px-3">Дата</th>
+                                    <th class="py-2 px-3">Опис</th>
+                                    <th class="py-2 px-3 text-right">Сума</th>
+                                    <th class="py-2 px-3">Тип</th>
+                                    <th class="py-2 px-3">Статус</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stmtPreviewBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <p id="stmtSummary" class="text-xs text-slate-400"></p>
+            </div>
+
+            <div class="flex justify-end gap-2 p-5 border-t border-slate-700">
+                <button onclick="closeStatementModal()" class="px-4 py-2 text-xs text-slate-400 hover:text-slate-200">Скасувати</button>
+                <button id="stmtImportBtn" onclick="confirmStatementImport()" class="px-4 py-2 text-xs bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:hover:bg-indigo-600 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-colors">
+                    Імпортувати операції
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        // Chart.js Dark Mode Defaults
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.borderColor = '#334155';
+
+        let mainCurrency = localStorage.getItem('fin_main_currency') || 'UAH';
+        let currentType = 'expense';
+        let rates = { UAH: 1, USD: 41.2, EUR: 45.0, PLN: 10.5 };
+
+        let editingTxId = null;
+        let editingAssetId = null;
+        let editingGoalId = null;
+
+        let transactions = JSON.parse(localStorage.getItem('fin_txs')) || [
+            { id: 1, type: 'income', description: 'Зарплата', amount: 45000, currency: 'UAH', category: 'Зарплата', date: '2026-08-01' },
+            { id: 2, type: 'expense', description: 'Оренда', amount: 12000, currency: 'UAH', category: 'Житло', date: '2026-08-02' }
+        ];
+
+        let portfolio = JSON.parse(localStorage.getItem('fin_port')) || [
+            { id: 101, name: 'ОВДП Гривневі 2027', category: 'ОВДП', value: 100000, currency: 'UAH', profitPct: 16.5 },
+            { id: 102, name: 'S&P 500 Index ETF', category: 'ETF / Акції', value: 3000, currency: 'USD', profitPct: 12.0 },
+            { id: 103, name: 'Валютні ОВДП (USD)', category: 'ОВДП', value: 2000, currency: 'USD', profitPct: 4.5 },
+            { id: 104, name: 'Bitcoin', category: 'Криптовалюта', value: 1500, currency: 'USD', profitPct: 20.0 }
+        ];
+
+        let goals = JSON.parse(localStorage.getItem('fin_goals')) || [
+            { id: 201, title: 'Фінансова подушка', target: 5000, current: 2000, currency: 'USD' }
+        ];
+
+        const defaultCategories = [
+            { name: 'Харчування', emoji: '🍔' },
+            { name: 'Житло', emoji: '🏠' },
+            { name: 'Транспорт', emoji: '🚗' },
+            { name: 'Розваги', emoji: '🎬' },
+            { name: "Здоров'я", emoji: '💊' },
+            { name: 'Заощадження', emoji: '💰' },
+            { name: 'ОВДП', emoji: '🏛️' },
+            { name: 'Зарплата', emoji: '💵' },
+            { name: 'Інше', emoji: '📦' }
+        ];
+        let categories = JSON.parse(localStorage.getItem('fin_categories')) || defaultCategories.slice();
+
+        let recurringTemplates = JSON.parse(localStorage.getItem('fin_recurring')) || [];
+        let ovdpWatchlist = JSON.parse(localStorage.getItem('fin_ovdp_watchlist')) || [];
+        let netWorthHistory = JSON.parse(localStorage.getItem('fin_nw_history')) || [];
+
+        let categoryChartInstance = null;
+        let trendChartInstance = null;
+        let nwAssetChartInstance = null;
+        let nwCurrencyChartInstance = null;
+        let nwHistoryChartInstance = null;
+        let piProjectionChartInstance = null;
+
+        async function fetchRates() {
+            try {
+                const res = await fetch('https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json');
+                const data = await res.json();
+                const usd = data.find(c => c.cc === 'USD')?.rate;
+                const eur = data.find(c => c.cc === 'EUR')?.rate;
+                const pln = data.find(c => c.cc === 'PLN')?.rate;
+
+                if (usd) rates.USD = usd;
+                if (eur) rates.EUR = eur;
+                if (pln) rates.PLN = pln;
+
+                document.getElementById('rateUSD').textContent = `USD: ${rates.USD.toFixed(2)} ₴`;
+                document.getElementById('rateEUR').textContent = `EUR: ${rates.EUR.toFixed(2)} ₴`;
+                document.getElementById('ratePLN').textContent = `PLN: ${rates.PLN.toFixed(2)} ₴`;
+            } catch (e) {
+                console.log('Використовуються стандартні курси');
+            }
+            renderAll();
+        }
+
+        function convert(amount, fromCurr, toCurr) {
+            if (fromCurr === toCurr) return amount;
+            const inUAH = amount * (rates[fromCurr] || 1);
+            return inUAH / (rates[toCurr] || 1);
+        }
+
+        function formatMoney(amount, curr = mainCurrency) {
+            const symbols = { UAH: '₴', USD: '$', EUR: '€', PLN: 'zł' };
+            return `${Math.round(amount).toLocaleString('uk-UA')} ${symbols[curr] || curr}`;
+        }
+
+        function changeGlobalCurrency(newCurr) {
+            mainCurrency = newCurr;
+            localStorage.setItem('fin_main_currency', newCurr);
+            renderAll();
+        }
+
+        function switchTab(tab) {
+            ['NetWorth', 'Budget', 'Ovdp', 'Invest', 'Goals', 'Passive'].forEach(t => {
+                document.getElementById(`tab${t}`).classList.add('hidden');
+                document.getElementById(`tab${t}Btn`).className = "pb-3 px-4 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 whitespace-nowrap";
+            });
+
+            const activeTab = tab.charAt(0).toUpperCase() + tab.slice(1);
+            document.getElementById(`tab${activeTab}`).classList.remove('hidden');
+            document.getElementById(`tab${activeTab}Btn`).className = "pb-3 px-4 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center gap-2 whitespace-nowrap";
+
+            if (tab === 'netWorth') renderNetWorth();
+            if (tab === 'budget') renderBudget();
+            if (tab === 'ovdp') { calculateOvdp(); renderOvdpWatchlist(); }
+            if (tab === 'invest') { calcCompound(); renderPortfolio(); }
+            if (tab === 'goals') renderGoals();
+            if (tab === 'passive') renderPassiveIncome();
+        }
+
+        function checkCategoryNavigation(categoryValue) {
+            const linkEl = document.getElementById('categoryCrossLink');
+            if (categoryValue === 'ОВДП') {
+                linkEl.classList.remove('hidden');
+            } else {
+                linkEl.classList.add('hidden');
+            }
+        }
+
+        // CUSTOM CATEGORIES
+        function renderCategoryOptions() {
+            const sel = document.getElementById('category');
+            const prevValue = sel.value;
+            sel.innerHTML = categories.map(c =>
+                `<option value="${escapeHtml(c.name)}">${c.emoji ? escapeHtml(c.emoji) + ' ' : ''}${escapeHtml(c.name)}</option>`
+            ).join('');
+            if (categories.some(c => c.name === prevValue)) {
+                sel.value = prevValue;
+            }
+
+            const filterSel = document.getElementById('filterCategory');
+            if (filterSel) {
+                const prevFilter = filterSel.value;
+                filterSel.innerHTML = '<option value="">Усі категорії</option>' + categories.map(c =>
+                    `<option value="${escapeHtml(c.name)}">${c.emoji ? escapeHtml(c.emoji) + ' ' : ''}${escapeHtml(c.name)}</option>`
+                ).join('');
+                if (categories.some(c => c.name === prevFilter)) filterSel.value = prevFilter;
+            }
+        }
+
+        // INLINE EDITING (click a value in a list/table to edit it in place)
+        function startInlineEdit(el) {
+            if (el.querySelector('input')) return;
+            const store = el.dataset.store;
+            const field = el.dataset.field;
+            const id = Number(el.dataset.id);
+            const type = el.dataset.type || 'number';
+            const rawValue = el.dataset.raw !== undefined ? el.dataset.raw : '';
+            const positiveOnlyFields = ['amount', 'value'];
+
+            const input = document.createElement('input');
+            input.type = type === 'number' ? 'number' : 'text';
+            if (type === 'number') input.step = 'any';
+            input.value = rawValue;
+            input.className = 'w-full min-w-0 px-1.5 py-0.5 text-xs rounded border border-indigo-500 bg-slate-950 text-slate-100 focus:outline-none';
+
+            el.innerHTML = '';
+            el.appendChild(input);
+            input.focus();
+            input.select();
+
+            let done = false;
+            const finish = (save) => {
+                if (done) return;
+                done = true;
+                if (save) {
+                    const newVal = type === 'number' ? parseFloat(input.value) : input.value.trim();
+                    const valid = type === 'number'
+                        ? (!isNaN(newVal) && (!positiveOnlyFields.includes(field) || newVal > 0))
+                        : newVal !== '';
+                    if (valid) applyInlineEdit(store, id, field, newVal);
+                }
+                refreshAfterInlineEdit(store);
+            };
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+                if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+            });
+            input.addEventListener('click', (e) => e.stopPropagation());
+            input.addEventListener('blur', () => finish(true));
+        }
+
+        function applyInlineEdit(store, id, field, value) {
+            const arr = store === 'tx' ? transactions : store === 'asset' ? portfolio : store === 'goal' ? goals : null;
+            if (!arr) return;
+            const item = arr.find(x => x.id === id);
+            if (!item) return;
+            item[field] = value;
+            saveData();
+        }
+
+        function refreshAfterInlineEdit(store) {
+            if (store === 'tx') renderBudget();
+            if (store === 'asset') renderPortfolio();
+            if (store === 'goal') renderGoals();
+            renderNetWorth();
+        }
+
+        function addCategory() {
+            const input = document.getElementById('newCategoryInput');
+            const name = input.value.trim();
+            if (!name) return;
+            if (categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+                input.value = '';
+                return;
+            }
+            categories.push({ name, emoji: '🏷️' });
+            saveData();
+            renderCategoryOptions();
+            document.getElementById('category').value = name;
+            checkCategoryNavigation(name);
+            input.value = '';
+        }
+
+        // RECURRING TRANSACTIONS
+        function processRecurringTransactions() {
+            if (recurringTemplates.length === 0) return;
+            const now = new Date();
+            const monthStr = now.toISOString().slice(0, 7);
+            let added = false;
+            recurringTemplates.forEach(r => {
+                const exists = transactions.some(t => t.recurringId === r.id && t.date.startsWith(monthStr));
+                if (!exists) {
+                    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                    const day = Math.min(r.dayOfMonth, daysInMonth);
+                    const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`;
+                    transactions.unshift({
+                        id: Date.now() + Math.floor(Math.random() * 1000),
+                        type: r.type,
+                        description: r.description,
+                        amount: r.amount,
+                        currency: r.currency,
+                        category: r.category,
+                        date: dateStr,
+                        recurringId: r.id
+                    });
+                    added = true;
+                }
+            });
+            if (added) saveData();
+        }
+
+        function deleteRecurringTemplate(id) {
+            recurringTemplates = recurringTemplates.filter(r => r.id !== id);
+            saveData();
+            renderRecurringList();
+        }
+
+        function renderRecurringList() {
+            const el = document.getElementById('recurringList');
+            if (!el) return;
+            if (recurringTemplates.length === 0) {
+                el.innerHTML = '<p class="text-[11px] text-slate-500 italic">Немає активних шаблонів</p>';
+                return;
+            }
+            el.innerHTML = recurringTemplates.map(r => `
+                <div class="flex items-center justify-between bg-slate-900/60 border border-slate-700/60 rounded-lg px-2.5 py-1.5 text-[11px]">
+                    <span class="text-slate-300">${escapeHtml(r.description)} · ${formatMoney(r.amount, r.currency)} · ${r.dayOfMonth} число</span>
+                    <button onclick="deleteRecurringTemplate(${r.id})" title="Прибрати з автоповторення" class="text-slate-500 hover:text-rose-400">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        // NET WORTH CALCULATION & RENDER
+        function renderNetWorth() {
+            document.querySelectorAll('.nwTargetCurrName').forEach(el => el.textContent = mainCurrency);
+
+            let budgetIncome = 0;
+            let budgetExpense = 0;
+            transactions.forEach(t => {
+                const amt = convert(t.amount, t.currency || 'UAH', mainCurrency);
+                if (t.type === 'income') budgetIncome += amt;
+                if (t.type === 'expense') budgetExpense += amt;
+            });
+            const liquidCash = Math.max(0, budgetIncome - budgetExpense);
+
+            let categoriesMap = { 'Картки та Готівка': liquidCash };
+            let currencyMap = {};
+
+            currencyMap[mainCurrency] = (currencyMap[mainCurrency] || 0) + liquidCash;
+
+            let investmentsTotal = 0;
+            let assetsListForTable = [
+                { name: 'Операційний залишок карток', category: 'Картки та Готівка', targetTab: 'budget', originalAmount: liquidCash, currency: mainCurrency }
+            ];
+
+            portfolio.forEach(a => {
+                const convertedValue = convert(a.value, a.currency, mainCurrency);
+                investmentsTotal += convertedValue;
+                categoriesMap[a.category] = (categoriesMap[a.category] || 0) + convertedValue;
+                currencyMap[a.currency] = (currencyMap[a.currency] || 0) + convertedValue;
+
+                assetsListForTable.push({
+                    name: a.name,
+                    category: a.category,
+                    targetTab: a.category === 'ОВДП' ? 'ovdp' : 'invest',
+                    originalAmount: a.value,
+                    currency: a.currency,
+                    store: 'asset',
+                    id: a.id
+                });
+            });
+
+            let goalsTotal = 0;
+            goals.forEach(g => {
+                const convertedGoalCurrent = convert(g.current, g.currency, mainCurrency);
+                goalsTotal += convertedGoalCurrent;
+                categoriesMap['Скарбнички / Цілі'] = (categoriesMap['Скарбнички / Цілі'] || 0) + convertedGoalCurrent;
+                currencyMap[g.currency] = (currencyMap[g.currency] || 0) + convertedGoalCurrent;
+
+                assetsListForTable.push({
+                    name: `Ціль: ${g.title}`,
+                    category: 'Скарбничка',
+                    targetTab: 'goals',
+                    originalAmount: g.current,
+                    currency: g.currency,
+                    store: 'goal',
+                    id: g.id
+                });
+            });
+
+            const totalNetWorth = liquidCash + investmentsTotal + goalsTotal;
+
+            recordNetWorthSnapshot(convert(totalNetWorth, mainCurrency, 'UAH'));
+
+            document.getElementById('nwTotalCapital').textContent = formatMoney(totalNetWorth);
+            document.getElementById('nwLiquidCash').textContent = formatMoney(liquidCash);
+            document.getElementById('nwInvestmentsTotal').textContent = formatMoney(investmentsTotal);
+            document.getElementById('nwGoalsTotal').textContent = formatMoney(goalsTotal);
+
+            // Populate the category filter from the FULL (unfiltered) asset list so
+            // options don't disappear as the user narrows the view.
+            const nwCatSel = document.getElementById('filterNwCategory');
+            if (nwCatSel) {
+                const prevNwCat = nwCatSel.value;
+                const uniqueNwCats = [...new Set(assetsListForTable.map(item => item.category))];
+                nwCatSel.innerHTML = '<option value="">Усі категорії</option>' + uniqueNwCats.map(c =>
+                    `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`
+                ).join('');
+                if (uniqueNwCats.includes(prevNwCat)) nwCatSel.value = prevNwCat;
+            }
+
+            const nwFilterCat = document.getElementById('filterNwCategory')?.value || '';
+            const nwFilterCurr = document.getElementById('filterNwCurrency')?.value || '';
+            const nwSortMode = document.getElementById('sortNw')?.value || 'amount_desc';
+
+            let tableRows = assetsListForTable.map(item => ({
+                ...item,
+                _converted: convert(item.originalAmount, item.currency, mainCurrency)
+            }));
+            if (nwFilterCat) tableRows = tableRows.filter(item => item.category === nwFilterCat);
+            if (nwFilterCurr) tableRows = tableRows.filter(item => item.currency === nwFilterCurr);
+            tableRows.sort((a, b) => {
+                if (nwSortMode === 'amount_asc') return a._converted - b._converted;
+                if (nwSortMode === 'name_asc') return a.name.localeCompare(b.name, 'uk');
+                return b._converted - a._converted;
+            });
+
+            const tbody = document.getElementById('nwAssetTableBody');
+            tbody.innerHTML = '';
+
+            if (tableRows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="py-4 px-4 text-slate-500 italic">Немає активів за обраними фільтрами</td></tr>';
+            }
+
+            tableRows.forEach(item => {
+                const convertedVal = item._converted;
+                const sharePct = totalNetWorth > 0 ? ((convertedVal / totalNetWorth) * 100).toFixed(1) : 0;
+                const nbuRate = (item.currency === mainCurrency) ? 1 : convert(1, item.currency, mainCurrency);
+                const amountCell = item.store
+                    ? `<span class="cursor-pointer hover:text-indigo-300 hover:underline" data-store="${item.store}" data-field="${item.store === 'goal' ? 'current' : 'value'}" data-id="${item.id}" data-type="number" data-raw="${item.originalAmount}" onclick="event.stopPropagation(); startInlineEdit(this)">${formatMoney(item.originalAmount, item.currency)}</span>`
+                    : formatMoney(item.originalAmount, item.currency);
+
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-slate-900/40 transition-colors";
+                tr.innerHTML = `
+                    <td class="py-3 px-4 font-semibold text-slate-200">${escapeHtml(item.name)}</td>
+                    <td class="py-3 px-4">
+                        <span onclick="switchTab('${item.targetTab}')" title="Натисніть для переходу до розділу" class="text-indigo-400 hover:text-indigo-300 cursor-pointer underline">
+                            ${escapeHtml(item.category)}
+                        </span>
+                    </td>
+                    <td class="py-3 px-4 text-right font-medium text-slate-200">${amountCell}</td>
+                    <td class="py-3 px-4 text-right text-slate-400">${item.currency === mainCurrency ? '-' : nbuRate.toFixed(2)}</td>
+                    <td class="py-3 px-4 text-right font-bold text-indigo-400">${formatMoney(convertedVal, mainCurrency)}</td>
+                    <td class="py-3 px-4 text-right font-semibold text-emerald-400">${sharePct}%</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            if (nwAssetChartInstance) nwAssetChartInstance.destroy();
+            const assetCtx = document.getElementById('nwAssetChart').getContext('2d');
+            nwAssetChartInstance = new Chart(assetCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(categoriesMap),
+                    datasets: [{
+                        data: Object.values(categoriesMap),
+                        backgroundColor: ['#10b981', '#6366f1', '#f59e0b', '#8b5cf6', '#ec4899', '#3b82f6', '#64748b']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+
+            if (nwCurrencyChartInstance) nwCurrencyChartInstance.destroy();
+            const currCtx = document.getElementById('nwCurrencyChart').getContext('2d');
+            nwCurrencyChartInstance = new Chart(currCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(currencyMap),
+                    datasets: [{
+                        data: Object.values(currencyMap),
+                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+
+            renderNetWorthHistoryChart();
+        }
+
+        function resetNwFilters() {
+            document.getElementById('filterNwCategory').value = '';
+            document.getElementById('filterNwCurrency').value = '';
+            document.getElementById('sortNw').value = 'amount_desc';
+            renderNetWorth();
+        }
+
+        // NET WORTH HISTORY
+        function recordNetWorthSnapshot(valueUAH) {
+            const today = new Date().toISOString().split('T')[0];
+            const idx = netWorthHistory.findIndex(h => h.date === today);
+            if (idx >= 0) {
+                netWorthHistory[idx].valueUAH = valueUAH;
+            } else {
+                netWorthHistory.push({ date: today, valueUAH });
+                netWorthHistory.sort((a, b) => a.date.localeCompare(b.date));
+                if (netWorthHistory.length > 365) netWorthHistory = netWorthHistory.slice(-365);
+            }
+            saveData();
+        }
+
+        function renderNetWorthHistoryChart() {
+            const canvas = document.getElementById('nwHistoryChart');
+            if (!canvas) return;
+            if (nwHistoryChartInstance) nwHistoryChartInstance.destroy();
+            const ctx = canvas.getContext('2d');
+            const labels = netWorthHistory.map(h => h.date);
+            // Historical snapshots are stored in UAH; converting them with TODAY's
+            // rates is an approximation since we don't keep a rate history per day.
+            const data = netWorthHistory.map(h => convert(h.valueUAH, 'UAH', mainCurrency));
+            nwHistoryChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        label: `Капітал (${mainCurrency})`,
+                        data,
+                        borderColor: '#6366f1',
+                        backgroundColor: 'rgba(99, 102, 241, 0.12)',
+                        tension: 0.3,
+                        fill: true,
+                        pointRadius: labels.length > 30 ? 0 : 3
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        // TRANSACTION FUNCTIONS
+        function setType(type) {
+            currentType = type;
+            const expBtn = document.getElementById('typeExpenseBtn');
+            const incBtn = document.getElementById('typeIncomeBtn');
+            if (type === 'expense') {
+                expBtn.className = "py-2 text-xs font-medium rounded-xl border border-rose-500 bg-rose-950/50 text-rose-300";
+                incBtn.className = "py-2 text-xs font-medium rounded-xl border border-slate-700 bg-slate-900 text-slate-400";
+            } else {
+                incBtn.className = "py-2 text-xs font-medium rounded-xl border border-emerald-500 bg-emerald-950/50 text-emerald-300";
+                expBtn.className = "py-2 text-xs font-medium rounded-xl border border-slate-700 bg-slate-900 text-slate-400";
+            }
+        }
+
+        // Parses a "YYYY-MM-DD" string as a LOCAL calendar date (not UTC), so day
+        // arithmetic and re-display never drift by a day across timezones.
+        function parseLocalDate(str) {
+            if (!str) return new Date(NaN);
+            const parts = str.split('-').map(Number);
+            if (parts.length !== 3 || parts.some(isNaN)) return new Date(NaN);
+            return new Date(parts[0], parts[1] - 1, parts[2]);
+        }
+
+        function formatLocalDate(d) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function addTransaction(e) {
+            e.preventDefault();
+            const desc = document.getElementById('description').value;
+            const amt = parseFloat(document.getElementById('amount').value);
+            const curr = document.getElementById('txCurrency').value;
+            const cat = document.getElementById('category').value;
+            const date = document.getElementById('txDate').value || new Date().toISOString().split('T')[0];
+            const isRecurring = document.getElementById('txRecurring').checked;
+
+            if (!desc || isNaN(amt) || amt <= 0) return;
+
+            if (editingTxId !== null) {
+                const tx = transactions.find(t => t.id === editingTxId);
+                if (tx) {
+                    tx.type = currentType;
+                    tx.description = desc;
+                    tx.amount = amt;
+                    tx.currency = curr;
+                    tx.category = cat;
+                    tx.date = date;
+                }
+                cancelTxEdit();
+            } else {
+                const newTx = {
+                    id: Date.now(),
+                    type: currentType,
+                    description: desc,
+                    amount: amt,
+                    currency: curr,
+                    category: cat,
+                    date: date
+                };
+                if (isRecurring) {
+                    const template = {
+                        id: Date.now() + 1,
+                        type: currentType,
+                        description: desc,
+                        amount: amt,
+                        currency: curr,
+                        category: cat,
+                        dayOfMonth: parseLocalDate(date).getDate()
+                    };
+                    recurringTemplates.push(template);
+                    newTx.recurringId = template.id;
+                }
+                transactions.unshift(newTx);
+                document.getElementById('description').value = '';
+                document.getElementById('amount').value = '';
+                document.getElementById('txRecurring').checked = false;
+            }
+
+            saveData();
+            renderBudget();
+            renderRecurringList();
+        }
+
+        function editTransaction(id) {
+            const tx = transactions.find(t => t.id === id);
+            if (!tx) return;
+            switchTab('budget');
+            setType(tx.type);
+            document.getElementById('description').value = tx.description;
+            document.getElementById('amount').value = tx.amount;
+            document.getElementById('txCurrency').value = tx.currency || 'UAH';
+            document.getElementById('category').value = tx.category;
+            checkCategoryNavigation(tx.category);
+            document.getElementById('txDate').value = tx.date;
+            document.getElementById('txRecurring').checked = false;
+            document.getElementById('txRecurring').disabled = true;
+            editingTxId = id;
+            document.getElementById('txSubmitBtn').textContent = 'Оновити запис';
+            document.getElementById('txCancelBtn').classList.remove('hidden');
+        }
+
+        function cancelTxEdit() {
+            editingTxId = null;
+            document.getElementById('txSubmitBtn').textContent = 'Зберегти запис';
+            document.getElementById('txCancelBtn').classList.add('hidden');
+            document.getElementById('txRecurring').disabled = false;
+            document.getElementById('description').value = '';
+            document.getElementById('amount').value = '';
+        }
+
+        function deleteTransaction(id) {
+            transactions = transactions.filter(t => t.id !== id);
+            saveData();
+            renderBudget();
+        }
+
+        function resetBudgetFilters() {
+            document.getElementById('monthFilter').value = '';
+            document.getElementById('filterCategory').value = '';
+            document.getElementById('filterType').value = '';
+            document.getElementById('filterCurrency').value = '';
+            document.getElementById('filterSearch').value = '';
+            document.getElementById('sortTx').value = 'date_desc';
+            renderBudget();
+        }
+
+        function setSortTx(mode) {
+            document.getElementById('sortTx').value = mode;
+            renderBudget();
+        }
+
+        function renderBudget() {
+            const filterMonth = document.getElementById('monthFilter').value;
+            const filterCategory = document.getElementById('filterCategory').value;
+            const filterType = document.getElementById('filterType').value;
+            const filterCurrency = document.getElementById('filterCurrency').value;
+            const filterSearch = document.getElementById('filterSearch').value.trim().toLowerCase();
+            const sortMode = document.getElementById('sortTx').value;
+
+            document.querySelectorAll('.quick-sort-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.sort === sortMode);
+            });
+
+            const listEl = document.getElementById('transactionsList');
+            listEl.innerHTML = '';
+
+            let filteredTx = transactions;
+            if (filterMonth) filteredTx = filteredTx.filter(t => t.date.startsWith(filterMonth));
+            if (filterCategory) filteredTx = filteredTx.filter(t => t.category === filterCategory);
+            if (filterType) filteredTx = filteredTx.filter(t => t.type === filterType);
+            if (filterCurrency) filteredTx = filteredTx.filter(t => (t.currency || 'UAH') === filterCurrency);
+            if (filterSearch) filteredTx = filteredTx.filter(t => t.description.toLowerCase().includes(filterSearch));
+
+            const sortedTx = [...filteredTx].sort((a, b) => {
+                if (sortMode === 'date_asc') return a.date.localeCompare(b.date);
+                if (sortMode === 'amount_desc') return convert(b.amount, b.currency || 'UAH', mainCurrency) - convert(a.amount, a.currency || 'UAH', mainCurrency);
+                if (sortMode === 'amount_asc') return convert(a.amount, a.currency || 'UAH', mainCurrency) - convert(b.amount, b.currency || 'UAH', mainCurrency);
+                if (sortMode === 'income_first' || sortMode === 'expense_first') {
+                    const firstType = sortMode === 'income_first' ? 'income' : 'expense';
+                    if (a.type !== b.type) return a.type === firstType ? -1 : 1;
+                    return b.date.localeCompare(a.date);
+                }
+                return b.date.localeCompare(a.date);
+            });
+
+            let totalIncome = 0;
+            let totalExpense = 0;
+            let catTotals = {};
+
+            if (sortedTx.length === 0) {
+                listEl.innerHTML = '<p class="text-xs text-slate-500 italic p-3">Немає операцій за обраними фільтрами</p>';
+            }
+
+            sortedTx.forEach(t => {
+                const convertedAmt = convert(t.amount, t.currency || 'UAH', mainCurrency);
+                if (t.type === 'income') totalIncome += convertedAmt;
+                if (t.type === 'expense') {
+                    totalExpense += convertedAmt;
+                    catTotals[t.category] = (catTotals[t.category] || 0) + convertedAmt;
+                }
+
+                const isInc = t.type === 'income';
+                const item = document.createElement('div');
+                item.className = "flex items-center justify-between p-3 bg-slate-900/60 hover:bg-slate-900 rounded-xl border border-slate-700/60 text-xs transition-colors";
+                item.innerHTML = `
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-7 h-7 rounded-lg flex items-center justify-center ${isInc ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/50' : 'bg-rose-950/80 text-rose-400 border border-rose-800/50'}">
+                            <i class="fa-solid ${isInc ? 'fa-arrow-down' : 'fa-arrow-up'} text-[10px]"></i>
+                        </div>
+                        <div>
+                            <p class="font-semibold text-slate-200">
+                                <span class="cursor-text hover:text-indigo-300" data-store="tx" data-field="description" data-id="${t.id}" data-type="text" data-raw="${escapeHtml(t.description)}" onclick="startInlineEdit(this)">${escapeHtml(t.description)}</span>
+                                ${t.recurringId ? ' <i class="fa-solid fa-rotate text-[9px] text-indigo-400" title="Повторювана операція"></i>' : ''}
+                            </p>
+                            <span class="text-[10px] text-slate-400">${escapeHtml(t.category)} • ${escapeHtml(t.date)}</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="font-bold ${isInc ? 'text-emerald-400' : 'text-slate-200'} cursor-pointer hover:underline" data-store="tx" data-field="amount" data-id="${t.id}" data-type="number" data-raw="${t.amount}" onclick="startInlineEdit(this)">
+                            ${isInc ? '+' : '-'}${formatMoney(t.amount, t.currency || 'UAH')}
+                        </span>
+                        <button onclick="editTransaction(${t.id})" title="Редагувати транзакцію" class="text-slate-500 hover:text-indigo-400 transition-colors">
+                            <i class="fa-solid fa-pen"></i>
+                        </button>
+                        <button onclick="deleteTransaction(${t.id})" title="Видалити транзакцію" class="text-slate-500 hover:text-rose-400 transition-colors">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                `;
+                listEl.appendChild(item);
+            });
+
+            document.getElementById('totalIncome').textContent = formatMoney(totalIncome);
+            document.getElementById('totalExpense').textContent = formatMoney(totalExpense);
+            document.getElementById('netBalance').textContent = formatMoney(totalIncome - totalExpense);
+            document.getElementById('itemCount').textContent = sortedTx.length;
+
+            let pct = totalIncome > 0 ? Math.min(Math.round((totalExpense / totalIncome) * 100), 100) : (totalExpense > 0 ? 100 : 0);
+            document.getElementById('budgetPercent').textContent = `${pct}%`;
+            const bar = document.getElementById('progressBar');
+            bar.style.width = `${pct}%`;
+            bar.className = pct < 70 ? "bg-emerald-500 h-2.5 rounded-full" : (pct < 90 ? "bg-amber-500 h-2.5 rounded-full" : "bg-rose-500 h-2.5 rounded-full");
+
+            renderCharts(catTotals, filteredTx);
+        }
+
+        function renderCharts(catTotals, filteredTx) {
+            if (categoryChartInstance) categoryChartInstance.destroy();
+            const pieCtx = document.getElementById('categoryChart').getContext('2d');
+            categoryChartInstance = new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(catTotals),
+                    datasets: [{
+                        data: Object.values(catTotals),
+                        backgroundColor: ['#818cf8', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6', '#94a3b8']
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+
+            if (trendChartInstance) trendChartInstance.destroy();
+            const lineCtx = document.getElementById('trendChart').getContext('2d');
+            const sortedTx = [...filteredTx].sort((a, b) => a.date.localeCompare(b.date));
+            trendChartInstance = new Chart(lineCtx, {
+                type: 'line',
+                data: {
+                    labels: sortedTx.map(t => t.date),
+                    datasets: [{
+                        label: `Операція (${mainCurrency})`,
+                        data: sortedTx.map(t => convert(t.amount, t.currency || 'UAH', mainCurrency)),
+                        borderColor: '#818cf8',
+                        backgroundColor: 'rgba(129, 140, 248, 0.1)',
+                        tension: 0.3,
+                        fill: true
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        // Steps a date by a whole number of calendar months (used to walk back from
+        // the maturity date to generate coupon dates). JS's setMonth() already
+        // rolls over into the next month correctly for most day-of-month values;
+        // real bonds can have 1-2 day conventions we don't attempt to replicate.
+        function addMonths(date, months) {
+            const d = new Date(date.getTime());
+            d.setMonth(d.getMonth() + months);
+            return d;
+        }
+
+        // Walks back from the maturity date in `frequency`-based steps (6 or 12
+        // months) until reaching the purchase date, producing every coupon date
+        // still ahead of the buyer.
+        function generateCouponDates(maturityDate, frequency, purchaseDate) {
+            const stepMonths = frequency === 1 ? 12 : 6;
+            const dates = [];
+            let d = new Date(maturityDate.getTime());
+            let guard = 0;
+            while (d.getTime() >= purchaseDate.getTime() && guard < 200) {
+                dates.unshift(new Date(d.getTime()));
+                d = addMonths(d, -stepMonths);
+                guard++;
+            }
+            return dates;
+        }
+
+        // Builds the full per-bond cash-flow schedule (each coupon as its own row,
+        // plus the nominal repayment as a separate "Погашення" row on the
+        // maturity date, matching how brokers display OVDP payment schedules).
+        function buildOvdpSchedule() {
+            const nominal = parseFloat(document.getElementById('ovdpNominal').value) || 0;
+            const couponRate = parseFloat(document.getElementById('ovdpCouponRate').value) || 0;
+            const frequency = parseInt(document.getElementById('ovdpFrequency').value) || 2;
+            const maturityDate = parseLocalDate(document.getElementById('ovdpMaturityDate').value);
+            const purchaseDate = parseLocalDate(document.getElementById('ovdpStartDate').value);
+
+            if (isNaN(maturityDate.getTime()) || isNaN(purchaseDate.getTime()) || maturityDate.getTime() <= purchaseDate.getTime()) {
+                return [];
+            }
+
+            const couponDates = generateCouponDates(maturityDate, frequency, purchaseDate);
+            const couponAmount = nominal * (couponRate / 100) / frequency;
+
+            const schedule = couponDates.map(d => ({
+                date: formatLocalDate(d),
+                type: 'Купон',
+                amount: couponAmount
+            }));
+
+            schedule.push({
+                date: formatLocalDate(maturityDate),
+                type: 'Погашення',
+                amount: nominal
+            });
+
+            return schedule;
+        }
+
+        // Present value of a cash-flow schedule at a given annualized yield,
+        // discounted from purchaseDate using actual/365 day counting.
+        function ovdpPriceFromYTM(schedule, purchaseDate, ytm) {
+            return schedule.reduce((sum, cf) => {
+                const days = (parseLocalDate(cf.date).getTime() - purchaseDate.getTime()) / 86400000;
+                return sum + cf.amount / Math.pow(1 + ytm, days / 365);
+            }, 0);
+        }
+
+        // Solves for the yield that makes the schedule's present value equal the
+        // given price. Bisection is used instead of Newton-Raphson because price
+        // is monotonically decreasing in yield, so it always converges safely.
+        function ovdpSolveYTM(schedule, purchaseDate, targetPrice) {
+            if (schedule.length === 0 || targetPrice <= 0) return 0;
+            let lo = -0.9, hi = 10;
+            for (let i = 0; i < 100; i++) {
+                const mid = (lo + hi) / 2;
+                const price = ovdpPriceFromYTM(schedule, purchaseDate, mid);
+                if (price > targetPrice) lo = mid; else hi = mid;
+            }
+            return (lo + hi) / 2;
+        }
+
+        function calculateOvdp() {
+            const price = parseFloat(document.getElementById('ovdpPrice').value) || 0;
+            const qty = parseInt(document.getElementById('ovdpQuantity').value) || 0;
+            const fee = parseFloat(document.getElementById('ovdpFee').value) || 0;
+            const sellPrice = parseFloat(document.getElementById('ovdpSellPrice').value) || 0;
+            const curr = document.getElementById('ovdpCurrency').value;
+            const purchaseDate = parseLocalDate(document.getElementById('ovdpStartDate').value);
+
+            const schedule = buildOvdpSchedule();
+
+            const purchaseAmount = price * qty;
+            const investAmount = purchaseAmount + fee;
+            const totalPerBond = schedule.reduce((s, cf) => s + cf.amount, 0);
+            const totalPayout = totalPerBond * qty;
+            const netProfit = totalPayout - investAmount;
+            const ytm = (price > 0 && schedule.length > 0) ? ovdpSolveYTM(schedule, purchaseDate, price) : 0;
+
+            document.getElementById('resYTM').textContent = `${(ytm * 100).toFixed(2)}%`;
+            document.getElementById('resInvestAmount').textContent = formatMoney(purchaseAmount, curr);
+            document.getElementById('resFees').textContent = formatMoney(fee, curr);
+            document.getElementById('resTotalReturn').textContent = formatMoney(totalPayout, curr);
+            document.getElementById('resNetProfit').textContent = `${netProfit >= 0 ? '+' : ''}${formatMoney(netProfit, curr)}`;
+
+            const sellBlock = document.getElementById('resSellBlock');
+            if (sellPrice > 0 && schedule.length > 0) {
+                const sellYtm = ovdpSolveYTM(schedule, purchaseDate, sellPrice);
+                document.getElementById('resSellYTM').textContent = `${(sellYtm * 100).toFixed(2)}%`;
+                document.getElementById('resSellSpread').textContent = formatMoney((price - sellPrice) * qty, curr);
+                sellBlock.classList.remove('hidden');
+            } else {
+                sellBlock.classList.add('hidden');
+            }
+
+            const scheduleBody = document.getElementById('ovdpScheduleBody');
+            if (schedule.length === 0) {
+                scheduleBody.innerHTML = '<tr><td colspan="5" class="py-3 px-3 text-slate-500 italic">Вкажіть коректні дату купівлі та дату погашення (погашення пізніше купівлі)</td></tr>';
+            } else {
+                scheduleBody.innerHTML = schedule.map(cf => `
+                    <tr>
+                        <td class="py-2 px-3">${parseLocalDate(cf.date).toLocaleDateString('uk-UA')}</td>
+                        <td class="py-2 px-3 ${cf.type === 'Погашення' ? 'text-indigo-400' : 'text-emerald-400'}">${cf.type}</td>
+                        <td class="py-2 px-3 text-right">${formatMoney(cf.amount, curr)}</td>
+                        <td class="py-2 px-3 text-right font-semibold">${formatMoney(cf.amount * qty, curr)}</td>
+                        <td class="py-2 px-3 text-right">
+                            <button onclick="addOvdpPaymentToBudget('${cf.date}', ${cf.amount * qty}, '${cf.type}')" title="Внести цю виплату в дохід Бюджету" class="text-slate-500 hover:text-emerald-400">
+                                <i class="fa-solid fa-circle-plus"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+            document.getElementById('ovdpScheduleTotal').textContent = formatMoney(totalPayout, curr);
+
+            saveOvdpSettings();
+        }
+
+        function saveOvdpSettings() {
+            const settings = {
+                name: document.getElementById('ovdpName').value,
+                currency: document.getElementById('ovdpCurrency').value,
+                nominal: document.getElementById('ovdpNominal').value,
+                couponRate: document.getElementById('ovdpCouponRate').value,
+                frequency: document.getElementById('ovdpFrequency').value,
+                startDate: document.getElementById('ovdpStartDate').value,
+                maturityDate: document.getElementById('ovdpMaturityDate').value,
+                price: document.getElementById('ovdpPrice').value,
+                quantity: document.getElementById('ovdpQuantity').value,
+                fee: document.getElementById('ovdpFee').value,
+                sellPrice: document.getElementById('ovdpSellPrice').value
+            };
+            localStorage.setItem('fin_ovdp_settings', JSON.stringify(settings));
+        }
+
+        function loadOvdpSettings() {
+            let saved;
+            try {
+                saved = JSON.parse(localStorage.getItem('fin_ovdp_settings') || 'null');
+            } catch (e) {
+                saved = null;
+            }
+            if (!saved) return;
+            if (saved.name !== undefined) document.getElementById('ovdpName').value = saved.name;
+            if (saved.currency) document.getElementById('ovdpCurrency').value = saved.currency;
+            if (saved.nominal) document.getElementById('ovdpNominal').value = saved.nominal;
+            if (saved.couponRate) document.getElementById('ovdpCouponRate').value = saved.couponRate;
+            if (saved.frequency) document.getElementById('ovdpFrequency').value = saved.frequency;
+            if (saved.startDate) document.getElementById('ovdpStartDate').value = saved.startDate;
+            if (saved.maturityDate) document.getElementById('ovdpMaturityDate').value = saved.maturityDate;
+            if (saved.price) document.getElementById('ovdpPrice').value = saved.price;
+            if (saved.quantity) document.getElementById('ovdpQuantity').value = saved.quantity;
+            if (saved.fee) document.getElementById('ovdpFee').value = saved.fee;
+            if (saved.sellPrice !== undefined) document.getElementById('ovdpSellPrice').value = saved.sellPrice;
+        }
+
+        function addOvdpPaymentToBudget(date, amount, type) {
+            if (amount <= 0) return;
+            const curr = document.getElementById('ovdpCurrency').value;
+            const name = document.getElementById('ovdpName').value || 'ОВДП';
+
+            transactions.unshift({
+                id: Date.now(),
+                type: 'income',
+                description: `${type} з ${name}`,
+                amount: Math.round(amount * 100) / 100,
+                currency: curr,
+                category: 'ОВДП',
+                date: date
+            });
+
+            saveData();
+            switchTab('budget');
+        }
+
+        function addOvdpProfitToBudget() {
+            const price = parseFloat(document.getElementById('ovdpPrice').value) || 0;
+            const qty = parseInt(document.getElementById('ovdpQuantity').value) || 0;
+            const fee = parseFloat(document.getElementById('ovdpFee').value) || 0;
+            const curr = document.getElementById('ovdpCurrency').value;
+            const name = document.getElementById('ovdpName').value || 'ОВДП';
+            const maturityDateVal = document.getElementById('ovdpMaturityDate').value;
+
+            const schedule = buildOvdpSchedule();
+            const totalPayout = schedule.reduce((s, cf) => s + cf.amount, 0) * qty;
+            const netProfit = totalPayout - (price * qty + fee);
+            if (netProfit <= 0) return;
+
+            transactions.unshift({
+                id: Date.now(),
+                type: 'income',
+                description: `Очікуваний дохід з ${name} (до ${maturityDateVal || 'погашення'})`,
+                amount: Math.round(netProfit * 100) / 100,
+                currency: curr,
+                category: 'ОВДП',
+                date: maturityDateVal || new Date().toISOString().split('T')[0]
+            });
+
+            saveData();
+            switchTab('budget');
+        }
+
+        // OVDP WATCHLIST — a self-maintained list of currently available bond
+        // issues (there is no confirmed, CORS-enabled public API to pull this
+        // live from a static browser-only page, so the user adds entries from
+        // whatever their broker currently shows).
+        function saveOvdpWatchlist() {
+            localStorage.setItem('fin_ovdp_watchlist', JSON.stringify(ovdpWatchlist));
+        }
+
+        function addOvdpWatchlistItem(e) {
+            e.preventDefault();
+            const name = document.getElementById('wlName').value.trim();
+            const nominal = parseFloat(document.getElementById('wlNominal').value) || 1000;
+            const coupon = parseFloat(document.getElementById('wlCoupon').value) || 0;
+            const maturity = document.getElementById('wlMaturity').value;
+            const price = parseFloat(document.getElementById('wlPrice').value) || 0;
+            const currency = document.getElementById('wlCurrency').value;
+
+            if (!name || !maturity) return;
+
+            ovdpWatchlist.unshift({ id: Date.now(), name, nominal, coupon, maturity, price, currency });
+            saveOvdpWatchlist();
+            renderOvdpWatchlist();
+
+            document.getElementById('wlName').value = '';
+            document.getElementById('wlCoupon').value = '';
+            document.getElementById('wlMaturity').value = '';
+            document.getElementById('wlPrice').value = '';
+        }
+
+        function deleteOvdpWatchlistItem(id) {
+            ovdpWatchlist = ovdpWatchlist.filter(w => w.id !== id);
+            saveOvdpWatchlist();
+            renderOvdpWatchlist();
+        }
+
+        function loadOvdpWatchlistItem(id) {
+            const w = ovdpWatchlist.find(x => x.id === id);
+            if (!w) return;
+            document.getElementById('ovdpName').value = w.name;
+            document.getElementById('ovdpNominal').value = w.nominal;
+            document.getElementById('ovdpCouponRate').value = w.coupon;
+            document.getElementById('ovdpMaturityDate').value = w.maturity;
+            document.getElementById('ovdpPrice').value = w.price;
+            document.getElementById('ovdpCurrency').value = w.currency;
+            calculateOvdp();
+        }
+
+        function addOvdpWatchlistToPortfolio(id) {
+            const w = ovdpWatchlist.find(x => x.id === id);
+            if (!w) return;
+            const qtyStr = prompt(`Скільки штук "${w.name}" додати в портфель?`, '1');
+            if (!qtyStr || isNaN(qtyStr)) return;
+            const qty = parseFloat(qtyStr);
+            if (qty <= 0) return;
+
+            portfolio.unshift({
+                id: Date.now(),
+                name: w.name,
+                category: 'ОВДП',
+                value: Math.round(w.price * qty * 100) / 100,
+                currency: w.currency,
+                profitPct: w.coupon
+            });
+            saveData();
+            renderPortfolio();
+            renderNetWorth();
+            alert(`Додано в портфель: ${qty} шт. "${w.name}"`);
+        }
+
+        function renderOvdpWatchlist() {
+            const tbody = document.getElementById('ovdpWatchlistBody');
+            if (!tbody) return;
+            if (ovdpWatchlist.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="py-4 px-3 text-slate-500 italic">Список порожній — додайте випуски ОВДП, які бачите зараз у своєму брокері (Приват24, Freedom24 тощо)</td></tr>';
+                return;
+            }
+            tbody.innerHTML = ovdpWatchlist.map(w => {
+                const maturityDate = parseLocalDate(w.maturity);
+                const maturityLabel = !isNaN(maturityDate.getTime()) ? maturityDate.toLocaleDateString('uk-UA') : '-';
+                return `
+                <tr class="hover:bg-slate-900/40">
+                    <td class="py-2 px-3 font-semibold text-slate-200">${escapeHtml(w.name)}</td>
+                    <td class="py-2 px-3 text-right">${formatMoney(w.nominal, w.currency)}</td>
+                    <td class="py-2 px-3 text-right text-indigo-400">${w.coupon}%</td>
+                    <td class="py-2 px-3">${maturityLabel}</td>
+                    <td class="py-2 px-3 text-right">${formatMoney(w.price, w.currency)}</td>
+                    <td class="py-2 px-3 text-right whitespace-nowrap">
+                        <button onclick="loadOvdpWatchlistItem(${w.id})" title="Завантажити в калькулятор" class="text-slate-500 hover:text-indigo-400 mr-2"><i class="fa-solid fa-calculator"></i></button>
+                        <button onclick="addOvdpWatchlistToPortfolio(${w.id})" title="Додати в портфель" class="text-slate-500 hover:text-emerald-400 mr-2"><i class="fa-solid fa-circle-plus"></i></button>
+                        <button onclick="deleteOvdpWatchlistItem(${w.id})" title="Видалити зі списку" class="text-slate-500 hover:text-rose-400"><i class="fa-solid fa-xmark"></i></button>
+                    </td>
+                </tr>
+            `;
+            }).join('');
+        }
+
+        function calcCompound() {
+            const P = parseFloat(document.getElementById('invStart').value) || 0;
+            const PMT = parseFloat(document.getElementById('invMonthly').value) || 0;
+            const r = (parseFloat(document.getElementById('invRate').value) || 0) / 100;
+            const t = parseInt(document.getElementById('invYears').value) || 1;
+
+            let total = P;
+            let deposits = P;
+
+            for (let i = 0; i < t * 12; i++) {
+                total = (total + PMT) * (1 + r / 12);
+                deposits += PMT;
+            }
+
+            document.getElementById('resInvDeposits').textContent = formatMoney(deposits);
+            document.getElementById('resInvProfit').textContent = formatMoney(total - deposits);
+            document.getElementById('resInvTotal').textContent = formatMoney(total);
+        }
+
+        function addAsset(e) {
+            e.preventDefault();
+            const name = document.getElementById('assetName').value;
+            const cat = document.getElementById('assetCategory').value;
+            const val = parseFloat(document.getElementById('assetValue').value);
+            const curr = document.getElementById('assetCurrency').value;
+            const profit = parseFloat(document.getElementById('assetProfitPct').value) || 0;
+
+            if (!name || isNaN(val) || val <= 0) return;
+
+            if (editingAssetId !== null) {
+                const a = portfolio.find(x => x.id === editingAssetId);
+                if (a) {
+                    a.name = name;
+                    a.category = cat;
+                    a.value = val;
+                    a.currency = curr;
+                    a.profitPct = profit;
+                }
+                cancelAssetEdit();
+            } else {
+                portfolio.unshift({ id: Date.now(), name, category: cat, value: val, currency: curr, profitPct: profit });
+                document.getElementById('assetName').value = '';
+                document.getElementById('assetValue').value = '';
+            }
+
+            saveData();
+            renderPortfolio();
+        }
+
+        function editAsset(id) {
+            const a = portfolio.find(x => x.id === id);
+            if (!a) return;
+            switchTab('invest');
+            document.getElementById('assetName').value = a.name;
+            document.getElementById('assetCategory').value = a.category;
+            document.getElementById('assetValue').value = a.value;
+            document.getElementById('assetCurrency').value = a.currency;
+            document.getElementById('assetProfitPct').value = a.profitPct;
+            editingAssetId = id;
+            document.getElementById('assetSubmitBtn').textContent = 'Оновити актив';
+            document.getElementById('assetCancelBtn').classList.remove('hidden');
+        }
+
+        function cancelAssetEdit() {
+            editingAssetId = null;
+            document.getElementById('assetSubmitBtn').textContent = 'Зберегти в портфель';
+            document.getElementById('assetCancelBtn').classList.add('hidden');
+            document.getElementById('assetName').value = '';
+            document.getElementById('assetValue').value = '';
+        }
+
+        function deleteAsset(id) {
+            portfolio = portfolio.filter(a => a.id !== id);
+            saveData();
+            renderPortfolio();
+        }
+
+        function renderPortfolio() {
+            const listEl = document.getElementById('portfolioList');
+            listEl.innerHTML = '';
+
+            const filterCat = document.getElementById('filterAssetCategory')?.value || '';
+            const sortMode = document.getElementById('sortAsset')?.value || 'value_desc';
+
+            let totalVal = 0;
+            portfolio.forEach(a => { totalVal += convert(a.value, a.currency, mainCurrency); });
+
+            let rows = portfolio.map(a => ({ ...a, _converted: convert(a.value, a.currency, mainCurrency) }));
+            if (filterCat) rows = rows.filter(a => a.category === filterCat);
+            rows.sort((a, b) => {
+                if (sortMode === 'value_asc') return a._converted - b._converted;
+                if (sortMode === 'profit_desc') return b.profitPct - a.profitPct;
+                if (sortMode === 'profit_asc') return a.profitPct - b.profitPct;
+                return b._converted - a._converted;
+            });
+
+            if (rows.length === 0) {
+                listEl.innerHTML = '<p class="text-xs text-slate-500 italic p-3">Немає активів за обраною категорією</p>';
+            }
+
+            rows.forEach(a => {
+                const isPos = a.profitPct >= 0;
+
+                const item = document.createElement('div');
+                item.className = "flex items-center justify-between p-3 bg-slate-900/60 hover:bg-slate-900 rounded-xl border border-slate-700/60 text-xs transition-colors";
+                item.innerHTML = `
+                    <div>
+                        <p class="font-semibold text-slate-200">${escapeHtml(a.name)}</p>
+                        <span class="text-[10px] text-slate-400">${escapeHtml(a.category)}</span>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="text-right">
+                            <p class="font-bold text-slate-200 cursor-pointer hover:text-indigo-300 hover:underline" data-store="asset" data-field="value" data-id="${a.id}" data-type="number" data-raw="${a.value}" onclick="startInlineEdit(this)">${formatMoney(a.value, a.currency)}</p>
+                            <span class="text-[10px] font-semibold ${isPos ? 'text-emerald-400' : 'text-rose-400'} cursor-pointer hover:underline" data-store="asset" data-field="profitPct" data-id="${a.id}" data-type="number" data-raw="${a.profitPct}" onclick="startInlineEdit(this)">${isPos ? '+' : ''}${a.profitPct}%</span>
+                        </div>
+                        <button onclick="editAsset(${a.id})" title="Редагувати актив" class="text-slate-500 hover:text-indigo-400"><i class="fa-solid fa-pen"></i></button>
+                        <button onclick="deleteAsset(${a.id})" title="Видалити актив з портфеля" class="text-slate-500 hover:text-rose-400"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                `;
+                listEl.appendChild(item);
+            });
+
+            const shownVal = rows.reduce((s, a) => s + a._converted, 0);
+            document.getElementById('totalPortfolioValue').textContent = filterCat
+                ? `Показано: ${formatMoney(shownVal)} з ${formatMoney(totalVal)}`
+                : `Всього: ${formatMoney(totalVal)}`;
+        }
+
+        function addGoal(e) {
+            e.preventDefault();
+            const title = document.getElementById('goalTitle').value;
+            const target = parseFloat(document.getElementById('goalTarget').value);
+            const curr = document.getElementById('goalCurrency').value;
+
+            if (!title || isNaN(target) || target <= 0) return;
+
+            if (editingGoalId !== null) {
+                const g = goals.find(x => x.id === editingGoalId);
+                if (g) {
+                    g.title = title;
+                    g.target = target;
+                    g.currency = curr;
+                }
+                cancelGoalEdit();
+            } else {
+                goals.unshift({ id: Date.now(), title, target, current: 0, currency: curr });
+                document.getElementById('goalTitle').value = '';
+                document.getElementById('goalTarget').value = '';
+            }
+
+            saveData();
+            renderGoals();
+        }
+
+        function editGoal(id) {
+            const g = goals.find(x => x.id === id);
+            if (!g) return;
+            switchTab('goals');
+            document.getElementById('goalTitle').value = g.title;
+            document.getElementById('goalTarget').value = g.target;
+            document.getElementById('goalCurrency').value = g.currency;
+            editingGoalId = id;
+            document.getElementById('goalSubmitBtn').textContent = 'Оновити ціль';
+            document.getElementById('goalCancelBtn').classList.remove('hidden');
+        }
+
+        function cancelGoalEdit() {
+            editingGoalId = null;
+            document.getElementById('goalSubmitBtn').textContent = 'Створити Скарбничку';
+            document.getElementById('goalCancelBtn').classList.add('hidden');
+            document.getElementById('goalTitle').value = '';
+            document.getElementById('goalTarget').value = '';
+        }
+
+        function depositGoal(id) {
+            const goal = goals.find(g => g.id === id);
+            if (!goal) return;
+            const amt = prompt(`Скільки додати до цілі "${goal.title}" (${goal.currency})?`);
+            if (amt && !isNaN(amt)) {
+                goal.current = Math.max(0, goal.current + parseFloat(amt));
+                saveData();
+                renderGoals();
+            }
+        }
+
+        function deleteGoal(id) {
+            goals = goals.filter(g => g.id !== id);
+            saveData();
+            renderGoals();
+        }
+
+        function renderGoals() {
+            const div = document.getElementById('goalsList');
+            div.innerHTML = '';
+
+            goals.forEach(g => {
+                const pct = g.target > 0 ? Math.min(Math.round((g.current / g.target) * 100), 100) : 0;
+                const el = document.createElement('div');
+                el.className = "p-4 bg-slate-900/60 border border-slate-700/60 rounded-2xl space-y-2 text-xs";
+                el.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-slate-200 text-sm">${escapeHtml(g.title)}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="font-semibold text-slate-400">
+                                <span class="cursor-pointer hover:text-indigo-300 hover:underline" data-store="goal" data-field="current" data-id="${g.id}" data-type="number" data-raw="${g.current}" onclick="startInlineEdit(this)">${formatMoney(g.current, g.currency)}</span>
+                                / ${formatMoney(g.target, g.currency)} (${pct}%)
+                            </span>
+                            <button onclick="editGoal(${g.id})" title="Редагувати ціль" class="text-slate-500 hover:text-indigo-400"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="deleteGoal(${g.id})" title="Видалити ціль" class="text-slate-500 hover:text-rose-400"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
+                    <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                        <div class="bg-indigo-500 h-2 rounded-full" style="width: ${pct}%"></div>
+                    </div>
+                    <button onclick="depositGoal(${g.id})" title="Додати накопичення до цієї скарбнички" class="mt-1 px-3 py-1 bg-indigo-950/80 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/50 rounded-lg font-medium transition-colors">
+                        + Внести кошти
+                    </button>
+                `;
+                div.appendChild(el);
+            });
+        }
+
+        function saveData() {
+            localStorage.setItem('fin_txs', JSON.stringify(transactions));
+            localStorage.setItem('fin_port', JSON.stringify(portfolio));
+            localStorage.setItem('fin_goals', JSON.stringify(goals));
+            localStorage.setItem('fin_categories', JSON.stringify(categories));
+            localStorage.setItem('fin_recurring', JSON.stringify(recurringTemplates));
+            localStorage.setItem('fin_nw_history', JSON.stringify(netWorthHistory));
+        }
+
+        function exportJSON() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+                transactions, portfolio, goals, categories, recurringTemplates, netWorthHistory
+            }, null, 2));
+            downloadFile(dataStr, "finance_backup.json");
+        }
+
+        // Guards against CSV formula injection (Excel/Sheets execute cells whose
+        // content starts with =, +, -, @, tab or CR when opened) and always
+        // quotes fields so embedded commas/quotes can't shift columns.
+        function csvField(value) {
+            let str = String(value ?? '');
+            if (/^[=+\-@\t\r]/.test(str)) str = "'" + str;
+            return `"${str.replace(/"/g, '""')}"`;
+        }
+
+        function exportCSV() {
+            let csv = 'ID,Type,Description,Amount,Currency,Category,Date\n' +
+                transactions.map(t => [
+                    t.id, t.type, t.description, t.amount, t.currency || 'UAH', t.category, t.date
+                ].map(csvField).join(',')).join('\n');
+            downloadFile("data:text/csv;charset=utf-8," + encodeURIComponent(csv), "transactions.csv");
+        }
+
+        function downloadFile(uri, filename) {
+            const a = document.createElement('a');
+            a.href = uri;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // BANK STATEMENT IMPORT (CSV / Excel)
+        let statementFileBuffer = null;
+        let statementRawRows = [];
+
+        function handleStatementFile(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                statementFileBuffer = event.target.result;
+                parseStatementBuffer(65001);
+                if (statementRawRows.length === 0) {
+                    alert('Не вдалося зчитати рядки з файлу. Перевірте, що це коректний CSV або Excel-файл.');
+                    return;
+                }
+                openStatementModal();
+            };
+            reader.onerror = () => alert('Не вдалося прочитати файл.');
+            reader.readAsArrayBuffer(file);
+            e.target.value = '';
+        }
+
+        // A real .xlsx/.xls file is a ZIP archive and starts with the "PK" magic bytes.
+        // Anything else is treated as delimited text (CSV/TSV/semicolon-separated).
+        function isBinaryExcel(bytes) {
+            return bytes.length > 2 && bytes[0] === 0x50 && bytes[1] === 0x4B;
+        }
+
+        // Parses CSV/TSV/semicolon-delimited text ourselves instead of letting SheetJS
+        // guess cell types: SheetJS's CSV importer can silently reinterpret an
+        // unambiguous "DD.MM.YYYY" date string as US-style "MM/DD/YY", swapping day
+        // and month. Keeping the raw text lets parseStatementDate() parse it correctly.
+        function parseDelimitedText(text) {
+            const firstLine = text.split(/\r\n|\r|\n/).find(l => l.trim() !== '') || '';
+            const counts = {
+                ',': (firstLine.match(/,/g) || []).length,
+                ';': (firstLine.match(/;/g) || []).length,
+                '\t': (firstLine.match(/\t/g) || []).length
+            };
+            const delimiter = Object.keys(counts).reduce((a, b) => counts[b] > counts[a] ? b : a, ',');
+
+            const rows = [];
+            let row = [];
+            let field = '';
+            let inQuotes = false;
+            for (let i = 0; i < text.length; i++) {
+                const ch = text[i];
+                if (inQuotes) {
+                    if (ch === '"') {
+                        if (text[i + 1] === '"') { field += '"'; i++; }
+                        else inQuotes = false;
+                    } else {
+                        field += ch;
+                    }
+                } else if (ch === '"') {
+                    inQuotes = true;
+                } else if (ch === delimiter) {
+                    row.push(field);
+                    field = '';
+                } else if (ch === '\n') {
+                    row.push(field);
+                    rows.push(row);
+                    row = [];
+                    field = '';
+                } else if (ch === '\r') {
+                    if (text[i + 1] !== '\n') {
+                        row.push(field);
+                        rows.push(row);
+                        row = [];
+                        field = '';
+                    }
+                } else {
+                    field += ch;
+                }
+            }
+            if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
+            return rows;
+        }
+
+        function parseStatementBuffer(codepage) {
+            try {
+                const bytes = new Uint8Array(statementFileBuffer);
+                let rows;
+                if (isBinaryExcel(bytes)) {
+                    const workbook = XLSX.read(bytes, { type: 'array' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+                } else {
+                    const decoder = new TextDecoder(codepage === 1251 ? 'windows-1251' : 'utf-8');
+                    rows = parseDelimitedText(decoder.decode(bytes));
+                }
+                statementRawRows = rows.filter(row => row.some(cell => String(cell).trim() !== ''));
+            } catch (err) {
+                statementRawRows = [];
+            }
+        }
+
+        function onStatementEncodingChange() {
+            const codepage = document.getElementById('stmtEncoding').value === '1251' ? 1251 : 65001;
+            parseStatementBuffer(codepage);
+            if (statementRawRows.length === 0) {
+                alert('Не вдалося зчитати рядки з файлу з обраним кодуванням.');
+                return;
+            }
+            populateColumnSelectsAndGuess();
+            renderStatementPreview();
+        }
+
+        function guessHeaderRowIndex() {
+            for (let i = 0; i < Math.min(5, statementRawRows.length); i++) {
+                const nonEmpty = statementRawRows[i].filter(c => String(c).trim() !== '');
+                if (nonEmpty.length >= 3) return i;
+            }
+            return 0;
+        }
+
+        function openStatementModal() {
+            document.getElementById('stmtEncoding').value = '65001';
+
+            const headerSel = document.getElementById('stmtHeaderRow');
+            headerSel.innerHTML = statementRawRows.slice(0, 5).map((row, i) =>
+                `<option value="${i}">${i + 1}: ${escapeHtml(row.slice(0, 4).join(' | ').slice(0, 60))}</option>`
+            ).join('');
+            headerSel.value = guessHeaderRowIndex();
+
+            populateColumnSelectsAndGuess();
+
+            const catSel = document.getElementById('stmtCategory');
+            catSel.innerHTML = categories.map(c =>
+                `<option value="${escapeHtml(c.name)}">${c.emoji ? escapeHtml(c.emoji) + ' ' : ''}${escapeHtml(c.name)}</option>`
+            ).join('');
+            if (categories.some(c => c.name === 'Інше')) catSel.value = 'Інше';
+
+            document.getElementById('statementModal').classList.remove('hidden');
+            renderStatementPreview();
+        }
+
+        function closeStatementModal() {
+            document.getElementById('statementModal').classList.add('hidden');
+            statementRawRows = [];
+            statementFileBuffer = null;
+        }
+
+        function populateColumnSelectsAndGuess() {
+            const headerIdx = parseInt(document.getElementById('stmtHeaderRow').value) || 0;
+            const headerRow = statementRawRows[headerIdx] || [];
+            const colCount = statementRawRows.reduce((max, r) => Math.max(max, r.length), 0);
+
+            const optionsHtml = Array.from({ length: colCount }, (_, i) => {
+                const label = (headerRow[i] !== undefined && String(headerRow[i]).trim() !== '')
+                    ? String(headerRow[i]).trim()
+                    : `Стовпець ${i + 1}`;
+                return `<option value="${i}">${escapeHtml(label)}</option>`;
+            }).join('');
+
+            document.getElementById('stmtDateCol').innerHTML = optionsHtml;
+            document.getElementById('stmtDescCol').innerHTML = optionsHtml;
+            document.getElementById('stmtAmountCol').innerHTML = optionsHtml;
+            document.getElementById('stmtTypeCol').innerHTML = '<option value="">— визначати за знаком суми —</option>' + optionsHtml;
+            document.getElementById('stmtCurrencyCol').innerHTML = '<option value="">— одна валюта для всіх —</option>' + optionsHtml;
+            document.getElementById('stmtBankCategoryCol').innerHTML = '<option value="">— не використовувати —</option>' + optionsHtml;
+
+            // Each guess excludes columns already claimed by an earlier (more specific)
+            // guess, so e.g. "Деталі операції" can't be matched by the date guesser
+            // just because its header also contains the substring "операції".
+            const usedCols = new Set();
+            const guessCol = (keywords) => {
+                for (let i = 0; i < headerRow.length; i++) {
+                    if (usedCols.has(i)) continue;
+                    const h = String(headerRow[i] || '').toLowerCase();
+                    if (keywords.some(k => h.includes(k))) { usedCols.add(i); return i; }
+                }
+                return -1;
+            };
+
+            const dateGuess = guessCol(['дата i час', 'дата і час', 'дата', 'date']);
+            const descGuess = guessCol(['деталі', 'опис операції', 'опис', 'призначення', 'description']);
+            const amountGuess = guessCol(['сума в валюті картки', 'сума операції', 'сума', 'amount']);
+            const typeGuess = guessCol(['тип', 'напрямок', 'дебет/кредит', 'type']);
+            const currencyGuess = guessCol(['валюта картки', 'валюта операції', 'валюта транзакції', 'валюта', 'currency']);
+            const bankCategoryGuess = guessCol(['категорія', 'category']);
+
+            if (dateGuess >= 0) document.getElementById('stmtDateCol').value = dateGuess;
+            if (descGuess >= 0) document.getElementById('stmtDescCol').value = descGuess;
+            if (amountGuess >= 0) document.getElementById('stmtAmountCol').value = amountGuess;
+            document.getElementById('stmtTypeCol').value = typeGuess >= 0 ? typeGuess : '';
+            document.getElementById('stmtCurrencyCol').value = currencyGuess >= 0 ? currencyGuess : '';
+            document.getElementById('stmtBankCategoryCol').value = bankCategoryGuess >= 0 ? bankCategoryGuess : '';
+        }
+
+        function normalizeCurrencyCode(raw, fallback) {
+            const known = ['UAH', 'USD', 'EUR', 'PLN'];
+            const s = String(raw || '').trim().toUpperCase();
+            return known.includes(s) ? s : fallback;
+        }
+
+        // Money moved between the user's own cards/accounts isn't real income or an
+        // expense — importing it as one would double-count it in the budget.
+        const INTERNAL_TRANSFER_PATTERN = /на\s+(свою|власну)\s+(картк|рахун)|(^|\s)зі?\s+(своєї|власної)\s+(картк|рахунк)|переказ\s+(на|між)\s+(свої|власні|власн)|поповнення\s+власно/i;
+
+        function isLikelyInternalTransfer(desc, bankCategory) {
+            return INTERNAL_TRANSFER_PATTERN.test(desc || '') || INTERNAL_TRANSFER_PATTERN.test(bankCategory || '');
+        }
+
+        function parseStatementAmount(raw) {
+            if (raw === undefined || raw === null) return NaN;
+            let s = String(raw).trim();
+            if (s === '') return NaN;
+            let negative = false;
+            if (/^\(.*\)$/.test(s)) { negative = true; s = s.slice(1, -1); }
+            s = s.replace(/[^\d,.\-+]/g, '');
+            if (s.includes(',') && s.includes('.')) {
+                s = s.replace(/,/g, '');
+            } else if (s.includes(',')) {
+                s = s.replace(',', '.');
+            }
+            let val = parseFloat(s);
+            if (isNaN(val)) return NaN;
+            if (negative) val = -Math.abs(val);
+            return val;
+        }
+
+        function parseStatementDate(raw) {
+            if (raw === undefined || raw === null) return null;
+            const s = String(raw).trim();
+            if (s === '') return null;
+
+            if (/^\d+(\.\d+)?$/.test(s) && Number(s) > 20000 && Number(s) < 80000) {
+                const parsed = XLSX.SSF.parse_date_code(Number(s));
+                if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+            }
+
+            let m = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+            if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+
+            m = s.match(/^(\d{4})[.\/-](\d{1,2})[.\/-](\d{1,2})/);
+            if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+
+            const d = new Date(s);
+            if (!isNaN(d.getTime())) return formatLocalDate(d);
+
+            return null;
+        }
+
+        // The Ukrainian military "grошове забезпечення" pay system encodes the
+        // specific payment type after a dash inside the "Коментар:" field, e.g.
+        // "...-vynahoroda za znyshch. tekhniky" (reward for destroyed equipment).
+        // The bank's own "Категорія" column just says "Зарахування" for all of
+        // these, so we look inside the comment text itself for a useful category.
+        const INCOME_COMMENT_CATEGORY_RULES = [
+            { pattern: /vynahoroda\s*za\s*znyshch/i, category: 'За знищену техніку' },
+            { pattern: /\bboyov(i|ykh)\b/i, category: 'Бойові' },
+            { pattern: /poranenn|invalidnist/i, category: 'Виплати за поранення' }
+        ];
+
+        const INCOME_CATEGORY_EMOJIS = {
+            'За знищену техніку': '💥',
+            'Бойові': '⚔️',
+            'Виплати за поранення': '🏥',
+            'Зарплата': '💵',
+            'Соціальні виплати': '🤝'
+        };
+
+        function detectIncomeCategory(desc) {
+            const commentMatch = desc.match(/Коментар:\s*(.+)$/i);
+            const searchText = commentMatch ? commentMatch[1] : desc;
+
+            for (const rule of INCOME_COMMENT_CATEGORY_RULES) {
+                if (rule.pattern.test(searchText)) return rule.category;
+            }
+
+            // Note: no trailing \b here — JS's \w (and thus \b) only recognizes
+            // ASCII letters, so a word boundary right after Cyrillic text never
+            // matches. A plain prefix check is enough for these bank descriptions.
+            if (/^Зарплата/i.test(desc)) return 'Зарплата';
+            if (/^Соціальні\s+виплати/i.test(desc)) return 'Соціальні виплати';
+
+            return null;
+        }
+
+        function ensureCategoryExists(name) {
+            if (!categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+                categories.push({ name, emoji: INCOME_CATEGORY_EMOJIS[name] || '🏷️' });
+            }
+        }
+
+        function buildStatementTransactions() {
+            const headerIdx = parseInt(document.getElementById('stmtHeaderRow').value) || 0;
+            const dateCol = parseInt(document.getElementById('stmtDateCol').value);
+            const descCol = parseInt(document.getElementById('stmtDescCol').value);
+            const amountCol = parseInt(document.getElementById('stmtAmountCol').value);
+            const typeColVal = document.getElementById('stmtTypeCol').value;
+            const typeCol = typeColVal === '' ? -1 : parseInt(typeColVal);
+            const currencyColVal = document.getElementById('stmtCurrencyCol').value;
+            const currencyCol = currencyColVal === '' ? -1 : parseInt(currencyColVal);
+            const bankCatColVal = document.getElementById('stmtBankCategoryCol').value;
+            const bankCatCol = bankCatColVal === '' ? -1 : parseInt(bankCatColVal);
+            const defaultCurrency = document.getElementById('stmtCurrency').value;
+            const invert = document.getElementById('stmtInvertSign').checked;
+            const skipTransfers = document.getElementById('stmtSkipTransfers').checked;
+
+            const dataRows = statementRawRows.slice(headerIdx + 1);
+            const results = [];
+
+            dataRows.forEach(row => {
+                const rawDate = row[dateCol];
+                const rawDesc = row[descCol];
+                const rawAmount = row[amountCol];
+                const bankCategory = bankCatCol >= 0 ? String(row[bankCatCol] || '').trim() : '';
+
+                const date = parseStatementDate(rawDate);
+                let amount = parseStatementAmount(rawAmount);
+                const desc = rawDesc !== undefined ? String(rawDesc).trim() : '';
+
+                if (date === null || isNaN(amount) || amount === 0 || !desc) {
+                    results.push({ ok: false, date: rawDate, desc: rawDesc, amount: rawAmount });
+                    return;
+                }
+
+                if (skipTransfers && isLikelyInternalTransfer(desc, bankCategory)) {
+                    results.push({ ok: false, skippedTransfer: true, date, desc, amount, currency: defaultCurrency });
+                    return;
+                }
+
+                if (invert) amount = -amount;
+
+                let type;
+                if (typeCol >= 0) {
+                    const typeRaw = String(row[typeCol] || '').toLowerCase();
+                    const isExpenseWord = /витрат|debit|видатк|списан/.test(typeRaw);
+                    const isIncomeWord = /дохід|credit|надходж|поповн|зарахуван/.test(typeRaw);
+                    if (isIncomeWord && !isExpenseWord) type = 'income';
+                    else if (isExpenseWord && !isIncomeWord) type = 'expense';
+                    else type = amount >= 0 ? 'income' : 'expense';
+                } else {
+                    type = amount >= 0 ? 'income' : 'expense';
+                }
+
+                const currency = currencyCol >= 0
+                    ? normalizeCurrencyCode(row[currencyCol], defaultCurrency)
+                    : defaultCurrency;
+
+                // Match the bank's own category text (e.g. "Заощадження") against an
+                // existing app category so imports don't all land in one bucket.
+                let category = null;
+                if (bankCategory) {
+                    const found = categories.find(c => c.name.toLowerCase() === bankCategory.toLowerCase());
+                    if (found) category = found.name;
+                }
+                if (!category && type === 'income') {
+                    category = detectIncomeCategory(desc);
+                }
+
+                results.push({ ok: true, date, desc, amount: Math.abs(amount), currency, type, category });
+            });
+
+            return results;
+        }
+
+        function renderStatementPreview() {
+            const rows = buildStatementTransactions();
+            const tbody = document.getElementById('stmtPreviewBody');
+            const preview = rows.slice(0, 25);
+
+            tbody.innerHTML = preview.map(r => {
+                if (!r.ok) {
+                    if (r.skippedTransfer) {
+                        return `<tr class="opacity-60">
+                            <td class="py-1.5 px-3">${escapeHtml(String(r.date ?? ''))}</td>
+                            <td class="py-1.5 px-3">${escapeHtml(String(r.desc ?? ''))}</td>
+                            <td class="py-1.5 px-3 text-right">${formatMoney(Math.abs(r.amount), r.currency)}</td>
+                            <td class="py-1.5 px-3">—</td>
+                            <td class="py-1.5 px-3 text-amber-400">Переказ (пропущено)</td>
+                        </tr>`;
+                    }
+                    return `<tr class="opacity-50">
+                        <td class="py-1.5 px-3">${escapeHtml(String(r.date ?? ''))}</td>
+                        <td class="py-1.5 px-3">${escapeHtml(String(r.desc ?? ''))}</td>
+                        <td class="py-1.5 px-3 text-right">${escapeHtml(String(r.amount ?? ''))}</td>
+                        <td class="py-1.5 px-3">—</td>
+                        <td class="py-1.5 px-3 text-rose-400">Пропущено</td>
+                    </tr>`;
+                }
+                return `<tr>
+                    <td class="py-1.5 px-3">${escapeHtml(r.date)}</td>
+                    <td class="py-1.5 px-3">${escapeHtml(r.desc)}</td>
+                    <td class="py-1.5 px-3 text-right font-semibold ${r.type === 'income' ? 'text-emerald-400' : 'text-slate-200'}">${r.type === 'income' ? '+' : '-'}${formatMoney(r.amount, r.currency)}</td>
+                    <td class="py-1.5 px-3">${r.type === 'income' ? 'Дохід' : 'Витрата'}</td>
+                    <td class="py-1.5 px-3 text-emerald-400">OK${r.category ? ` · ${escapeHtml(r.category)}` : ''}</td>
+                </tr>`;
+            }).join('');
+
+            const validCount = rows.filter(r => r.ok).length;
+            const transferCount = rows.filter(r => !r.ok && r.skippedTransfer).length;
+            const invalidCount = rows.length - validCount - transferCount;
+            const totalCount = rows.length;
+            document.getElementById('stmtSummary').textContent =
+                `Знайдено рядків: ${totalCount}. Буде імпортовано: ${validCount}` +
+                (transferCount > 0 ? `, пропущено як перекази між власними картками: ${transferCount}` : '') +
+                (invalidCount > 0 ? `, пропущено через помилки розпізнавання: ${invalidCount}` : '') +
+                (totalCount > preview.length ? ` · Показано перші ${preview.length} для перегляду.` : '');
+
+            document.getElementById('stmtImportBtn').disabled = validCount === 0;
+        }
+
+        function confirmStatementImport() {
+            const rows = buildStatementTransactions().filter(r => r.ok);
+            if (rows.length === 0) return;
+            const defaultCategory = document.getElementById('stmtCategory').value || 'Інше';
+
+            rows.forEach(r => {
+                const finalCategory = r.category || defaultCategory;
+                ensureCategoryExists(finalCategory);
+                transactions.push({
+                    id: Date.now() + Math.floor(Math.random() * 1000000),
+                    type: r.type,
+                    description: r.desc,
+                    amount: r.amount,
+                    currency: r.currency,
+                    category: finalCategory,
+                    date: r.date
+                });
+            });
+
+            transactions.sort((a, b) => b.date.localeCompare(a.date));
+
+            saveData();
+            renderCategoryOptions();
+            closeStatementModal();
+            switchTab('budget');
+            alert(`Імпортовано операцій: ${rows.length}`);
+        }
+
+        // IMPORT VALIDATION
+        function isValidTransaction(t) {
+            return t && typeof t === 'object'
+                && (typeof t.id === 'number' || typeof t.id === 'string')
+                && (t.type === 'income' || t.type === 'expense')
+                && typeof t.description === 'string'
+                && typeof t.amount === 'number' && isFinite(t.amount)
+                && typeof t.category === 'string'
+                && typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(t.date);
+        }
+
+        function isValidAsset(a) {
+            return a && typeof a === 'object'
+                && (typeof a.id === 'number' || typeof a.id === 'string')
+                && typeof a.name === 'string'
+                && typeof a.category === 'string'
+                && typeof a.value === 'number' && isFinite(a.value)
+                && typeof a.currency === 'string';
+        }
+
+        function isValidGoal(g) {
+            return g && typeof g === 'object'
+                && (typeof g.id === 'number' || typeof g.id === 'string')
+                && typeof g.title === 'string'
+                && typeof g.target === 'number' && isFinite(g.target)
+                && typeof g.current === 'number' && isFinite(g.current)
+                && typeof g.currency === 'string';
+        }
+
+        function validateImportData(data) {
+            if (!data || typeof data !== 'object') return 'Файл має містити JSON-об\'єкт.';
+            if (data.transactions !== undefined) {
+                if (!Array.isArray(data.transactions) || !data.transactions.every(isValidTransaction)) {
+                    return 'Розділ "transactions" має невірний формат.';
+                }
+            }
+            if (data.portfolio !== undefined) {
+                if (!Array.isArray(data.portfolio) || !data.portfolio.every(isValidAsset)) {
+                    return 'Розділ "portfolio" має невірний формат.';
+                }
+            }
+            if (data.goals !== undefined) {
+                if (!Array.isArray(data.goals) || !data.goals.every(isValidGoal)) {
+                    return 'Розділ "goals" має невірний формат.';
+                }
+            }
+            return null;
+        }
+
+        function importJSON(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    const error = validateImportData(data);
+                    if (error) {
+                        alert('Помилка імпорту: ' + error);
+                        return;
+                    }
+                    if (data.transactions) transactions = data.transactions;
+                    if (data.portfolio) portfolio = data.portfolio;
+                    if (data.goals) goals = data.goals;
+                    if (Array.isArray(data.categories)) categories = data.categories;
+                    if (Array.isArray(data.recurringTemplates)) recurringTemplates = data.recurringTemplates;
+                    if (Array.isArray(data.netWorthHistory)) netWorthHistory = data.netWorthHistory;
+                    saveData();
+                    renderAll();
+                    alert('Дані успішно імпортовано!');
+                } catch (err) {
+                    alert('Помилка зчитування файлу!');
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        }
+
+        function clearAllData() {
+            if (confirm('Ви дійсно хочете видалити ВСІ дані трекера?')) {
+                transactions = [];
+                portfolio = [];
+                goals = [];
+                recurringTemplates = [];
+                netWorthHistory = [];
+                categories = defaultCategories.slice();
+                saveData();
+                renderAll();
+            }
+        }
+
+        // PASSIVE INCOME CALCULATOR
+        function computeAverageMonthlyExpense() {
+            const monthTotals = {};
+            transactions.forEach(t => {
+                if (t.type !== 'expense') return;
+                const month = t.date.slice(0, 7);
+                const amt = convert(t.amount, t.currency || 'UAH', mainCurrency);
+                monthTotals[month] = (monthTotals[month] || 0) + amt;
+            });
+            const months = Object.keys(monthTotals);
+            if (months.length === 0) return 0;
+            const total = months.reduce((s, m) => s + monthTotals[m], 0);
+            return total / months.length;
+        }
+
+        // Unlike ОВДП (0% tax), interest income from a bank deposit in Ukraine is
+        // taxed: 18% ПДФО (personal income tax) + 5% військовий збір (military levy).
+        const DEPOSIT_TAX_RATE = 0.23;
+
+        function getEffectiveYield(asset) {
+            return asset.category === 'Депозит' ? asset.profitPct * (1 - DEPOSIT_TAX_RATE) : asset.profitPct;
+        }
+
+        function computePassiveIncomeSummary() {
+            let capital = 0;
+            let weightedYieldSum = 0;
+            const rows = [];
+            portfolio.forEach(a => {
+                const valueInMain = convert(a.value, a.currency, mainCurrency);
+                const isTaxed = a.category === 'Депозит';
+                const effectiveYield = getEffectiveYield(a);
+                const monthlyIncome = valueInMain * (effectiveYield / 100) / 12;
+                capital += valueInMain;
+                weightedYieldSum += valueInMain * effectiveYield;
+                rows.push({ name: a.name, category: a.category, valueInMain, profitPct: a.profitPct, effectiveYield, isTaxed, monthlyIncome, currency: a.currency, originalValue: a.value });
+            });
+            const avgYield = capital > 0 ? weightedYieldSum / capital : 0;
+            const monthlyIncome = capital * (avgYield / 100) / 12;
+            return { capital, avgYield, monthlyIncome, annualIncome: monthlyIncome * 12, rows };
+        }
+
+        function renderPassiveIncome() {
+            const summary = computePassiveIncomeSummary();
+            const avgExpense = computeAverageMonthlyExpense();
+
+            document.getElementById('piCapital').textContent = formatMoney(summary.capital);
+            document.getElementById('piAvgYield').textContent = `${summary.avgYield.toFixed(1)}%`;
+            document.getElementById('piMonthlyIncome').textContent = formatMoney(summary.monthlyIncome);
+            document.getElementById('piAnnualIncome').textContent = formatMoney(summary.annualIncome);
+            document.getElementById('piAvgExpense').textContent = formatMoney(avgExpense);
+
+            const coverage = avgExpense > 0 ? Math.round((summary.monthlyIncome / avgExpense) * 100) : (summary.monthlyIncome > 0 ? 100 : 0);
+            document.getElementById('piCoveragePercent').textContent = `${coverage}%`;
+            const bar = document.getElementById('piCoverageBar');
+            bar.style.width = `${Math.min(coverage, 100)}%`;
+            bar.className = coverage >= 100 ? "bg-emerald-500 h-2.5 rounded-full transition-all duration-300" : (coverage >= 50 ? "bg-amber-500 h-2.5 rounded-full transition-all duration-300" : "bg-rose-500 h-2.5 rounded-full transition-all duration-300");
+
+            const tbody = document.getElementById('piAssetTableBody');
+            if (summary.rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="py-3 px-4 text-slate-500 italic">Портфель порожній — додайте активи на вкладці "Інвестиції"</td></tr>';
+            } else {
+                tbody.innerHTML = summary.rows.map(r => `
+                    <tr class="hover:bg-slate-900/40 transition-colors">
+                        <td class="py-3 px-4 font-semibold text-slate-200">${escapeHtml(r.name)}</td>
+                        <td class="py-3 px-4 text-slate-400">${escapeHtml(r.category)}</td>
+                        <td class="py-3 px-4 text-right">${formatMoney(r.originalValue, r.currency)}</td>
+                        <td class="py-3 px-4 text-right ${r.profitPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}">
+                            ${r.profitPct}%
+                            ${r.isTaxed ? `<span class="block text-[9px] text-amber-400 font-normal">після податку ${r.effectiveYield.toFixed(2)}%</span>` : ''}
+                        </td>
+                        <td class="py-3 px-4 text-right font-bold text-indigo-400">${formatMoney(r.monthlyIncome)}</td>
+                    </tr>
+                `).join('');
+            }
+
+            loadOrInitPassiveSettings(summary, avgExpense);
+            calculatePassiveProjection();
+        }
+
+        function loadOrInitPassiveSettings(summary, avgExpense) {
+            let saved;
+            try {
+                saved = JSON.parse(localStorage.getItem('fin_passive_settings') || 'null');
+            } catch (e) {
+                saved = null;
+            }
+            if (saved) {
+                document.getElementById('piStartCapital').value = saved.startCapital ?? Math.round(summary.capital);
+                document.getElementById('piMonthlyContribution').value = saved.monthlyContribution ?? 0;
+                document.getElementById('piYieldInput').value = saved.avgYield ?? summary.avgYield.toFixed(1);
+                document.getElementById('piTargetIncome').value = saved.targetIncome ?? Math.round(avgExpense);
+            } else {
+                document.getElementById('piStartCapital').value = Math.round(summary.capital);
+                document.getElementById('piMonthlyContribution').value = 0;
+                document.getElementById('piYieldInput').value = summary.avgYield.toFixed(1);
+                document.getElementById('piTargetIncome').value = Math.round(avgExpense);
+            }
+        }
+
+        function syncPassiveCalculatorInputs() {
+            const summary = computePassiveIncomeSummary();
+            const avgExpense = computeAverageMonthlyExpense();
+            document.getElementById('piStartCapital').value = Math.round(summary.capital);
+            document.getElementById('piYieldInput').value = summary.avgYield.toFixed(1);
+            document.getElementById('piTargetIncome').value = Math.round(avgExpense);
+            calculatePassiveProjection();
+        }
+
+        function savePassiveSettings() {
+            const settings = {
+                startCapital: document.getElementById('piStartCapital').value,
+                monthlyContribution: document.getElementById('piMonthlyContribution').value,
+                avgYield: document.getElementById('piYieldInput').value,
+                targetIncome: document.getElementById('piTargetIncome').value
+            };
+            localStorage.setItem('fin_passive_settings', JSON.stringify(settings));
+        }
+
+        function calculatePassiveProjection() {
+            const P = parseFloat(document.getElementById('piStartCapital').value) || 0;
+            const PMT = parseFloat(document.getElementById('piMonthlyContribution').value) || 0;
+            const r = (parseFloat(document.getElementById('piYieldInput').value) || 0) / 100;
+            const target = parseFloat(document.getElementById('piTargetIncome').value) || 0;
+
+            let capital = P;
+            const currentMonthlyIncome = capital * r / 12;
+            document.getElementById('piCurrentProjIncome').textContent = formatMoney(currentMonthlyIncome);
+
+            const monthsToGoalEl = document.getElementById('piMonthsToGoal');
+            const goalDateEl = document.getElementById('piGoalDate');
+
+            if (target <= 0) {
+                monthsToGoalEl.textContent = 'Вкажіть цільовий дохід';
+                goalDateEl.textContent = '—';
+                renderPassiveProjectionChart([{ month: 0, income: currentMonthlyIncome }], target);
+                savePassiveSettings();
+                return;
+            }
+
+            if (currentMonthlyIncome >= target) {
+                monthsToGoalEl.textContent = 'Ціль вже досягнута!';
+                goalDateEl.textContent = new Date().toLocaleDateString('uk-UA');
+                renderPassiveProjectionChart([{ month: 0, income: currentMonthlyIncome }], target);
+                savePassiveSettings();
+                return;
+            }
+
+            if (r <= 0 && PMT <= 0) {
+                monthsToGoalEl.textContent = 'Недосяжно без внесків чи дохідності';
+                goalDateEl.textContent = '—';
+                renderPassiveProjectionChart([{ month: 0, income: currentMonthlyIncome }], target);
+                savePassiveSettings();
+                return;
+            }
+
+            const maxMonths = 600;
+            const series = [{ month: 0, income: currentMonthlyIncome }];
+            let months = 0;
+            let reached = false;
+            while (months < maxMonths) {
+                months++;
+                capital = (capital + PMT) * (1 + r / 12);
+                const income = capital * r / 12;
+                if (months % 3 === 0) series.push({ month: months, income });
+                if (income >= target) {
+                    series.push({ month: months, income });
+                    reached = true;
+                    break;
+                }
+            }
+
+            if (reached) {
+                const years = Math.floor(months / 12);
+                const remMonths = months % 12;
+                monthsToGoalEl.textContent = years > 0 ? `${years} р. ${remMonths} міс.` : `${remMonths} міс.`;
+                const goalDate = new Date();
+                goalDate.setMonth(goalDate.getMonth() + months);
+                goalDateEl.textContent = goalDate.toLocaleDateString('uk-UA');
+            } else {
+                monthsToGoalEl.textContent = 'Понад 50 років — збільшіть внесок або дохідність';
+                goalDateEl.textContent = '—';
+            }
+
+            renderPassiveProjectionChart(series, target);
+            savePassiveSettings();
+        }
+
+        function renderPassiveProjectionChart(series, target) {
+            const canvas = document.getElementById('piProjectionChart');
+            if (!canvas) return;
+            if (piProjectionChartInstance) piProjectionChartInstance.destroy();
+            const ctx = canvas.getContext('2d');
+            const datasets = [{
+                label: `Пасивний дохід/міс (${mainCurrency})`,
+                data: series.map(s => s.income),
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.12)',
+                tension: 0.3,
+                fill: true,
+                pointRadius: 0
+            }];
+            if (target > 0) {
+                datasets.push({
+                    label: 'Ціль',
+                    data: series.map(() => target),
+                    borderColor: '#f59e0b',
+                    borderDash: [6, 4],
+                    pointRadius: 0,
+                    fill: false
+                });
+            }
+            piProjectionChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels: series.map(s => `Міс. ${s.month}`), datasets },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        }
+
+        function renderAll() {
+            renderCategoryOptions();
+            renderRecurringList();
+            renderNetWorth();
+            renderBudget();
+            calculateOvdp();
+            renderOvdpWatchlist();
+            calcCompound();
+            renderPortfolio();
+            renderGoals();
+            renderPassiveIncome();
+        }
+
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        // Default Dates Setup
+        const todayStr = new Date().toISOString().split('T')[0];
+        document.getElementById('txDate').value = todayStr;
+        document.getElementById('ovdpStartDate').value = todayStr;
+        document.getElementById('monthFilter').value = todayStr.slice(0, 7);
+        document.getElementById('globalCurrency').value = mainCurrency;
+
+        loadOvdpSettings();
+        renderCategoryOptions();
+        processRecurringTransactions();
+
+        fetchRates();
+    </script>
+</body>
+</html>
